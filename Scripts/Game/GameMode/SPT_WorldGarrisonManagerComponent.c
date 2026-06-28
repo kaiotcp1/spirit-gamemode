@@ -33,11 +33,13 @@ class SPT_WorldGarrisonManagerComponentClass : ScriptComponentClass
 
 class SPT_WorldGarrisonManagerComponent : ScriptComponent
 {
+	protected const float PATROL_SPAWN_BUILDING_CLEARANCE_M = 30.0;
+	protected const float PATROL_SPAWN_GROUP_CLEARANCE_M = 40.0;
+	protected const int PATROL_SPAWN_RING_COUNT = 4;
+	protected const int PATROL_SPAWN_SAMPLES_PER_RING = 24;
+
 	[Attribute("0", desc: "Enable detailed diagnostic logs with the [SPT_WorldGarrison][DEBUG] prefix")]
 	protected bool m_bDebug;
-
-	[Attribute("0", desc: "Faction used by every generated garrison: 0 OPFOR, 1 BLUFOR, 2 INDEPENDENT")]
-	protected SPT_EGarrisonFaction m_eFaction;
 
 	[Attribute("800", desc: "Spawn or respawn when a player is within this distance (metres)")]
 	protected float m_fSpawnDistance;
@@ -54,6 +56,9 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 	[Attribute("175", desc: "Radius around each map location used to find buildings")]
 	protected float m_fBuildingSearchRadius;
 
+	[Attribute("400", desc: "Patrol radius measured from the center of each city or strategic location")]
+	protected float m_fPatrolRadius;
+
 	[Attribute("75", desc: "Ignore duplicate map descriptors closer than this distance")]
 	protected float m_fMinimumLocationSpacing;
 
@@ -63,31 +68,20 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 	[Attribute("1", desc: "Include bases and other strategic/military markers")]
 	protected bool m_bIncludeStrategicSites;
 
-	[Attribute("{4D3BBEC1A955626A}Prefabs/Groups/OPFOR/Spetsnaz/Group_USSR_Spetsnaz_Squad.et", UIWidgets.ResourceNamePicker, desc: "OPFOR group templates. Do not use _NotSpawned ambient patrol prefabs.", params: "et class=SCR_AIGroup")]
-	protected ref array<ResourceName> m_aOpforGroupPrefabs = {
-		"{4D3BBEC1A955626A}Prefabs/Groups/OPFOR/Spetsnaz/Group_USSR_Spetsnaz_Squad.et"
-	};
+	[Attribute("", UIWidgets.ResourceNamePicker, desc: "Groups positioned inside buildings and held at CQB posts such as windows", params: "et class=SCR_AIGroup")]
+	protected ref array<ResourceName> m_aCQBGroupPrefabs;
 
-	[Attribute("{D807C7047E818488}Prefabs/Groups/BLUFOR/Group_US_SniperTeam.et", UIWidgets.ResourceNamePicker, desc: "BLUFOR group templates. Do not use _NotSpawned ambient patrol prefabs.", params: "et class=SCR_AIGroup")]
-	protected ref array<ResourceName> m_aBluforGroupPrefabs = {
-		"{D807C7047E818488}Prefabs/Groups/BLUFOR/Group_US_SniperTeam.et",
-		"{D807C7047E818488}Prefabs/Groups/BLUFOR/Group_US_SniperTeam.et",
-		"{D807C7047E818488}Prefabs/Groups/BLUFOR/Group_US_SniperTeam.et",
-		"{D807C7047E818488}Prefabs/Groups/BLUFOR/Group_US_SniperTeam.et",
-		"{D807C7047E818488}Prefabs/Groups/BLUFOR/Group_US_SniperTeam.et",
-		"{D807C7047E818488}Prefabs/Groups/BLUFOR/Group_US_SniperTeam.et",
-		"{D807C7047E818488}Prefabs/Groups/BLUFOR/Group_US_SniperTeam.et",
-		"{D807C7047E818488}Prefabs/Groups/BLUFOR/Group_US_SniperTeam.et",
-		"{D807C7047E818488}Prefabs/Groups/BLUFOR/Group_US_SniperTeam.et"
-	};
+	[Attribute("", UIWidgets.ResourceNamePicker, desc: "Groups that patrol around the center of each city", params: "et class=SCR_AIGroup")]
+	protected ref array<ResourceName> m_aPatrolGroupPrefabs;
 
-	[Attribute("{22F33D3EC8F281AB}Prefabs/Groups/INDFOR/Group_FIA_MachineGunTeam.et", UIWidgets.ResourceNamePicker, desc: "INDEPENDENT group templates. Do not use _NotSpawned ambient patrol prefabs.", params: "et class=SCR_AIGroup")]
-	protected ref array<ResourceName> m_aIndependentGroupPrefabs = {
-		"{22F33D3EC8F281AB}Prefabs/Groups/INDFOR/Group_FIA_MachineGunTeam.et"
-	};
-
-	[Attribute("{FFF9518F73279473}PrefabsEditable/Auto/AI/Waypoints/E_AIWaypoint_Move.et", UIWidgets.ResourceNamePicker, desc: "Waypoint used by groups patrolling between buildings", params: "et")]
+	[Attribute("{FFF9518F73279473}PrefabsEditable/Auto/AI/Waypoints/E_AIWaypoint_Move.et", UIWidgets.ResourceNamePicker, desc: "Move waypoint used for each patrol destination", params: "et")]
 	protected ResourceName m_sPatrolWaypointPrefab;
+
+	[Attribute(SCR_EAIGroupFormation.Wedge.ToString(), UIWidgets.ComboBox, "Formation used by garrison patrol groups", "", ParamEnumArray.FromEnum(SCR_EAIGroupFormation))]
+	protected SCR_EAIGroupFormation m_ePatrolFormation;
+
+	[Attribute(EMovementType.WALK.ToString(), UIWidgets.ComboBox, "Movement pace used while following patrol waypoints", "", ParamEnumArray.FromEnum(EMovementType))]
+	protected EMovementType m_ePatrolMovementType;
 
 	protected ref array<ref SPT_GarrisonLocation> m_aLocations = new array<ref SPT_GarrisonLocation>();
 	protected int m_iDebugUpdateCounter;
@@ -114,8 +108,8 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		}
 
 		ValidateSettings();
-		DebugLog(string.Format("Inicializacao agendada em 1000 ms | faccao=%1 | prefabsGrupoConfigurados=%2",
-			m_eFaction, GetSelectedGroupPrefabCount()));
+		DebugLog(string.Format("Inicializacao agendada em 1000 ms | gruposCQB=%1 | gruposPatrulha=%2",
+			GetCQBGroupPrefabCount(), GetPatrolGroupPrefabCount()));
 		if (m_iGameMasterAIBudget > 0)
 			GetGame().GetCallqueue().CallLater(ConfigureGameMasterBudget, 1000, false, 10);
 		GetGame().GetCallqueue().CallLater(InitializeLocations, 1000, false);
@@ -137,6 +131,9 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 
 		if (m_fBuildingSearchRadius < 25)
 			m_fBuildingSearchRadius = 25;
+
+		if (m_fPatrolRadius < 25)
+			m_fPatrolRadius = 25;
 
 		if (m_fMinimumLocationSpacing < 0)
 			m_fMinimumLocationSpacing = 0;
@@ -233,8 +230,8 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			EQueryEntitiesFlags.ALL
 		);
 
-		Print(string.Format("[SPT_WorldGarrison] %1 locais registrados | faccao %2 | spawn %3m | despawn %4m | grupos completos por local=%5",
-			m_aLocations.Count(), m_eFaction, m_fSpawnDistance, m_fDespawnDistance, GetSelectedGroupPrefabCount()));
+		Print(string.Format("[SPT_WorldGarrison] %1 locais registrados | spawn %2m | despawn %3m | gruposCQB=%4 | gruposPatrulha=%5 | raioPatrulha=%6m",
+			m_aLocations.Count(), m_fSpawnDistance, m_fDespawnDistance, GetCQBGroupPrefabCount(), GetPatrolGroupPrefabCount(), m_fPatrolRadius));
 
 		if (m_aLocations.IsEmpty())
 			Print("[SPT_WorldGarrison] Nenhum local de mapa suportado foi encontrado. Verifique os tipos de descritor e as configuracoes de inclusao.", LogLevel.WARNING);
@@ -444,12 +441,12 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 	protected void SpawnLocation(notnull SPT_GarrisonLocation location)
 	{
 		PruneMissingGroupIds(location);
-		DebugLog(string.Format("SpawnLocation iniciado | nome=%1 | centro=%2 | prefabsGrupoConfigurados=%3",
-			location.m_sName, location.m_vCenter, GetSelectedGroupPrefabCount()));
+		DebugLog(string.Format("SpawnLocation iniciado | nome=%1 | centro=%2 | gruposCQB=%3 | gruposPatrulha=%4",
+			location.m_sName, location.m_vCenter, GetCQBGroupPrefabCount(), GetPatrolGroupPrefabCount()));
 
-		if (GetSelectedGroupPrefabCount() < 1)
+		if (GetCQBGroupPrefabCount() + GetPatrolGroupPrefabCount() < 1)
 		{
-			Print(string.Format("[SPT_WorldGarrison] Nenhum prefab de grupo configurado para a faccao %1.", m_eFaction), LogLevel.ERROR);
+			Print("[SPT_WorldGarrison] Nenhum grupo CQB ou de patrulha configurado.", LogLevel.ERROR);
 			return;
 		}
 
@@ -467,8 +464,11 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		{
 			Print(string.Format("[SPT_WorldGarrison] Nenhuma construcao utilizavel ao redor de %1 em %2",
 				location.m_sName, location.m_vCenter), LogLevel.WARNING);
-			location.m_bUnavailable = true;
-			return;
+			if (GetPatrolGroupPrefabCount() < 1)
+			{
+				location.m_bUnavailable = true;
+				return;
+			}
 		}
 
 		ShufflePositions(buildings);
@@ -478,15 +478,62 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		location.m_iSuccessfulGroups = 0;
 		location.m_iDesiredUnits = 0;
 		int buildingIndex = 0;
+		int patrolSpawnIndex = 0;
+		array<vector> patrolSpawnPositions = {};
 
-		array<ResourceName> groupPrefabs = GetSelectedGroupPrefabs();
-		DebugLog(string.Format("Lista selecionada para spawn | faccao=%1 | entradas=%2",
-			m_eFaction, groupPrefabs.Count()));
+		array<ResourceName> groupPrefabs = {};
+		array<bool> patrolFlags = {};
+		if (m_aCQBGroupPrefabs)
+		{
+			foreach (ResourceName cqbPrefab : m_aCQBGroupPrefabs)
+			{
+				groupPrefabs.Insert(cqbPrefab);
+				patrolFlags.Insert(false);
+			}
+		}
+		if (m_aPatrolGroupPrefabs)
+		{
+			foreach (ResourceName patrolPrefab : m_aPatrolGroupPrefabs)
+			{
+				groupPrefabs.Insert(patrolPrefab);
+				patrolFlags.Insert(true);
+			}
+		}
+		DebugLog(string.Format("Listas preparadas para spawn | CQB=%1 | patrulha=%2 | total=%3",
+			GetCQBGroupPrefabCount(), GetPatrolGroupPrefabCount(), groupPrefabs.Count()));
 		foreach (int prefabIndex, ResourceName groupPrefab : groupPrefabs)
 		{
-			int selectedBuilding = buildingIndex % buildings.Count();
-			vector buildingCenter = buildings[selectedBuilding];
-			buildingIndex++;
+			bool patrolGroup = patrolFlags[prefabIndex];
+			vector spawnCenter;
+			if (patrolGroup)
+			{
+				if (!FindOutdoorPatrolSpawn(
+					location.m_vCenter,
+					m_fPatrolRadius,
+					buildings,
+					patrolSpawnPositions,
+					patrolSpawnIndex,
+					spawnCenter))
+				{
+					Print(string.Format("[SPT_WorldGarrison] Nenhum ponto externo encontrado para grupo de patrulha | indice=%1 | centroCidade=%2",
+						prefabIndex, location.m_vCenter), LogLevel.ERROR);
+					continue;
+				}
+				patrolSpawnPositions.Insert(spawnCenter);
+				patrolSpawnIndex++;
+			}
+			else if (!buildings.IsEmpty())
+			{
+				int selectedBuilding = buildingIndex % buildings.Count();
+				spawnCenter = buildings[selectedBuilding];
+				buildingIndex++;
+			}
+			else
+			{
+				Print(string.Format("[SPT_WorldGarrison] Grupo CQB ignorado por falta de construcao | indice=%1 | prefab=%2",
+					prefabIndex, groupPrefab), LogLevel.WARNING);
+				continue;
+			}
 
 			if (groupPrefab.IsEmpty())
 			{
@@ -503,9 +550,9 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			}
 
 			int spawnedUnits;
-			DebugLog(string.Format("Spawnando grupo completo da lista | indice=%1 | prefab=%2 | centro=%3",
-				prefabIndex, groupPrefab, buildingCenter));
-			SCR_AIGroup group = SpawnGroup(groupResource, buildingCenter, spawnedUnits);
+			DebugLog(string.Format("Spawnando grupo completo | tipoPatrulha=%1 | indice=%2 | prefab=%3 | centroSpawn=%4",
+				patrolGroup, prefabIndex, groupPrefab, spawnCenter));
+			SCR_AIGroup group = SpawnGroup(groupResource, spawnCenter, spawnedUnits);
 			if (!group)
 			{
 				Print(string.Format("[SPT_WorldGarrison] Falha ao spawnar grupo completo no indice %1: %2",
@@ -524,14 +571,16 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			location.m_iPendingGroups++;
 			location.m_iDesiredUnits += spawnedUnits;
 			DebugLog(string.Format("Grupo completo criado | id=%1 | membros=%2 | centro=%3",
-				group.GetID(), spawnedUnits, buildingCenter));
+				group.GetID(), spawnedUnits, spawnCenter));
 			GetGame().GetCallqueue().CallLater(
 				WaitForGroupMembers,
 				250,
 				false,
 				location,
 				group,
-				buildingCenter,
+				spawnCenter,
+				location.m_vCenter,
+				patrolGroup,
 				spawnedUnits,
 				20
 			);
@@ -647,6 +696,8 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		SPT_GarrisonLocation location,
 		SCR_AIGroup group,
 		vector buildingCenter,
+		vector patrolCenter,
+		bool patrolGroup,
 		int expectedMembers,
 		int pollsLeft)
 	{
@@ -671,6 +722,8 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 				location,
 				group,
 				buildingCenter,
+				patrolCenter,
+				patrolGroup,
 				expectedMembers,
 				pollsLeft - 1
 			);
@@ -691,9 +744,24 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			Print(string.Format("[SPT_WorldGarrison] Grupo permaneceu parcial apos 5 segundos | grupo=%1 | agentes=%2/%3",
 				group, agentCount, expectedMembers), LogLevel.WARNING);
 
-		DebugLog(string.Format("Enviando grupo populado para guarnicao SPT | grupo=%1 | agentes=%2 | esperado=%3 | centro=%4",
-			group, agentCount, expectedMembers, buildingCenter));
-		SPT_AIGarrisonHelper.GarrisonGroup(group, buildingCenter, m_fBuildingSearchRadius, m_sPatrolWaypointPrefab);
+		if (patrolGroup)
+		{
+			DebugLog(string.Format("Enviando grupo para patrulha | grupo=%1 | agentes=%2 | centroCidade=%3 | raio=%4",
+				group, agentCount, patrolCenter, m_fPatrolRadius));
+			SPT_AIGarrisonHelper.PatrolGroup(
+				group,
+				patrolCenter,
+				m_fPatrolRadius,
+				m_sPatrolWaypointPrefab,
+				m_ePatrolFormation,
+				m_ePatrolMovementType);
+		}
+		else
+		{
+			DebugLog(string.Format("Enviando grupo para CQB estatico | grupo=%1 | agentes=%2 | centroConstrucao=%3",
+				group, agentCount, buildingCenter));
+			SPT_AIGarrisonHelper.GarrisonGroup(group, buildingCenter, m_fBuildingSearchRadius);
+		}
 		CompletePendingGroup(location, true);
 	}
 
@@ -795,34 +863,83 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		SCR_EntityHelper.DeleteEntityAndChildren(group);
 	}
 
-	protected int GetSelectedGroupPrefabCount()
+	protected int GetCQBGroupPrefabCount()
 	{
-		if (m_eFaction == SPT_EGarrisonFaction.BLUFOR)
-		{
-			if (!m_aBluforGroupPrefabs)
-				return 0;
-			return m_aBluforGroupPrefabs.Count();
-		}
-
-		if (m_eFaction == SPT_EGarrisonFaction.INDEPENDENT)
-		{
-			if (!m_aIndependentGroupPrefabs)
-				return 0;
-			return m_aIndependentGroupPrefabs.Count();
-		}
-
-		if (!m_aOpforGroupPrefabs)
+		if (!m_aCQBGroupPrefabs)
 			return 0;
-		return m_aOpforGroupPrefabs.Count();
+		return m_aCQBGroupPrefabs.Count();
 	}
 
-	protected array<ResourceName> GetSelectedGroupPrefabs()
+	protected int GetPatrolGroupPrefabCount()
 	{
-		if (m_eFaction == SPT_EGarrisonFaction.BLUFOR)
-			return m_aBluforGroupPrefabs;
-		if (m_eFaction == SPT_EGarrisonFaction.INDEPENDENT)
-			return m_aIndependentGroupPrefabs;
-		return m_aOpforGroupPrefabs;
+		if (!m_aPatrolGroupPrefabs)
+			return 0;
+		return m_aPatrolGroupPrefabs.Count();
+	}
+
+	protected bool FindOutdoorPatrolSpawn(
+		vector cityCenter,
+		float patrolRadius,
+		notnull array<vector> buildingCenters,
+		notnull array<vector> occupiedPatrolSpawns,
+		int sequence,
+		out vector outPosition)
+	{
+		float buildingClearanceSq = PATROL_SPAWN_BUILDING_CLEARANCE_M * PATROL_SPAWN_BUILDING_CLEARANCE_M;
+		float groupClearanceSq = PATROL_SPAWN_GROUP_CLEARANCE_M * PATROL_SPAWN_GROUP_CLEARANCE_M;
+		float bestScore = -1;
+		float bestBuildingDistanceSq;
+
+		for (int ring = 1; ring <= PATROL_SPAWN_RING_COUNT; ring++)
+		{
+			float distance = patrolRadius * ring / PATROL_SPAWN_RING_COUNT;
+			for (int sample = 0; sample < PATROL_SPAWN_SAMPLES_PER_RING; sample++)
+			{
+				float angle = (sample + sequence * 5) * 2.0 * Math.PI / PATROL_SPAWN_SAMPLES_PER_RING;
+				vector candidate = cityCenter + Vector(
+					Math.Cos(angle) * distance,
+					0,
+					Math.Sin(angle) * distance);
+
+				float nearestBuildingSq = 1000000000.0;
+				foreach (vector buildingCenter : buildingCenters)
+				{
+					float buildingDistanceSq = HorizontalDistanceSq(candidate, buildingCenter);
+					if (buildingDistanceSq < nearestBuildingSq)
+						nearestBuildingSq = buildingDistanceSq;
+				}
+				if (nearestBuildingSq < buildingClearanceSq)
+					continue;
+
+				float nearestPatrolSq = 1000000000.0;
+				foreach (vector occupiedSpawn : occupiedPatrolSpawns)
+				{
+					float patrolDistanceSq = HorizontalDistanceSq(candidate, occupiedSpawn);
+					if (patrolDistanceSq < nearestPatrolSq)
+						nearestPatrolSq = patrolDistanceSq;
+				}
+				if (nearestPatrolSq < groupClearanceSq)
+					continue;
+
+				float score = nearestBuildingSq;
+				if (!occupiedPatrolSpawns.IsEmpty() && nearestPatrolSq < score)
+					score = nearestPatrolSq;
+				if (score <= bestScore)
+					continue;
+
+				bestScore = score;
+				bestBuildingDistanceSq = nearestBuildingSq;
+				outPosition = candidate;
+			}
+		}
+
+		if (bestScore < 0)
+			return false;
+
+		outPosition[1] = GetGame().GetWorld().GetSurfaceY(outPosition[0], outPosition[2]) + 0.2;
+		DebugLog(string.Format("Spawn externo de patrulha selecionado | posicao=%1 | distanciaConstrucao=%2m | sequencia=%3",
+			outPosition, Math.Sqrt(bestBuildingDistanceSq), sequence));
+		return true;
 	}
 
 	protected void ShufflePositions(notnull array<vector> positions)
