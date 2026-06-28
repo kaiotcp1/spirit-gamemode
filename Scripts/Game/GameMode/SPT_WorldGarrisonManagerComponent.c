@@ -47,6 +47,9 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 	[Attribute("1000", desc: "Despawn after every player is farther than this distance (metres). Must be greater than spawn distance.")]
 	protected float m_fDespawnDistance;
 
+	[Attribute("100", desc: "Extra margin added to the despawn distance for an already-active location, preventing rapid spawn/despawn cycles when a player hovers near the boundary.")]
+	protected float m_fDespawnHysteresis;
+
 	[Attribute("2", desc: "Seconds between player-distance checks")]
 	protected float m_fUpdateInterval;
 
@@ -122,6 +125,9 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 
 		if (m_fDespawnDistance <= m_fSpawnDistance)
 			m_fDespawnDistance = m_fSpawnDistance + 200;
+
+		if (m_fDespawnHysteresis < 0)
+			m_fDespawnHysteresis = 0;
 
 		if (m_fUpdateInterval < 0.25)
 			m_fUpdateInterval = 0.25;
@@ -230,8 +236,8 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			EQueryEntitiesFlags.ALL
 		);
 
-		Print(string.Format("[SPT_WorldGarrison] %1 locais registrados | spawn %2m | despawn %3m | gruposCQB=%4 | gruposPatrulha=%5 | raioPatrulha=%6m",
-			m_aLocations.Count(), m_fSpawnDistance, m_fDespawnDistance, GetCQBGroupPrefabCount(), GetPatrolGroupPrefabCount(), m_fPatrolRadius));
+		Print(string.Format("[SPT_WorldGarrison] %1 locais registrados | spawn %2m | despawn %3m | histerese %4m | gruposCQB=%5 | gruposPatrulha=%6 | raioPatrulha=%7m",
+			m_aLocations.Count(), m_fSpawnDistance, m_fDespawnDistance, m_fDespawnHysteresis, GetCQBGroupPrefabCount(), GetPatrolGroupPrefabCount(), m_fPatrolRadius));
 
 		if (m_aLocations.IsEmpty())
 			Print("[SPT_WorldGarrison] Nenhum local de mapa suportado foi encontrado. Verifique os tipos de descritor e as configuracoes de inclusao.", LogLevel.WARNING);
@@ -355,7 +361,8 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		}
 
 		float spawnDistanceSq = m_fSpawnDistance * m_fSpawnDistance;
-		float despawnDistanceSq = m_fDespawnDistance * m_fDespawnDistance;
+		float baseDespawnDistanceSq = m_fDespawnDistance * m_fDespawnDistance;
+		float hysteresisSq = m_fDespawnHysteresis * m_fDespawnHysteresis;
 
 		foreach (SPT_GarrisonLocation location : m_aLocations)
 		{
@@ -365,10 +372,17 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 				continue;
 
 			float nearestPlayerSq = GetNearestPlayerDistanceSq(location.m_vCenter, playerPositions);
-			if (logThisUpdate && nearestPlayerSq <= despawnDistanceSq * 4)
+
+			float effectiveDespawnSq;
+			if (location.m_bActive)
+				effectiveDespawnSq = baseDespawnDistanceSq + hysteresisSq;
+			else
+				effectiveDespawnSq = baseDespawnDistanceSq;
+
+			if (logThisUpdate && nearestPlayerSq <= effectiveDespawnSq * 4)
 			{
-				DebugLog(string.Format("Distancia do local | nome=%1 | distancia=%2m | ativo=%3 | indisponivel=%4",
-					location.m_sName, Math.Sqrt(nearestPlayerSq), location.m_bActive, location.m_bUnavailable));
+				DebugLog(string.Format("Distancia do local | nome=%1 | distancia=%2m | ativo=%3 | indisponivel=%4 | despawnEfetivo=%5m",
+					location.m_sName, Math.Sqrt(nearestPlayerSq), location.m_bActive, location.m_bUnavailable, Math.Sqrt(effectiveDespawnSq)));
 			}
 
 			if (!location.m_bActive && nearestPlayerSq <= spawnDistanceSq)
@@ -376,7 +390,7 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 				DebugLog(string.Format("Limite de spawn atingido para %1.", location.m_sName));
 				SpawnLocation(location);
 			}
-			else if (location.m_bActive && nearestPlayerSq > despawnDistanceSq)
+			else if (location.m_bActive && nearestPlayerSq > effectiveDespawnSq)
 			{
 				DebugLog(string.Format("Limite de despawn atingido para %1.", location.m_sName));
 				DespawnLocation(location);
