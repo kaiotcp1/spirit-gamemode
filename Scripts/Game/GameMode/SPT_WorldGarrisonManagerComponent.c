@@ -767,21 +767,26 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 
 	protected void DespawnLocation(notnull SPT_GarrisonLocation location)
 	{
+		int groupCount = location.m_aGroupIds.Count();
+		array<EntityID> pendingGroupIds = {};
 		foreach (EntityID groupId : location.m_aGroupIds)
 		{
 			IEntity groupEntity = GetGame().GetWorld().FindEntityByID(groupId);
 			SCR_AIGroup group = SCR_AIGroup.Cast(groupEntity);
-			if (group)
-				DeleteGroup(group);
+			if (group && !DeleteGroup(group))
+				pendingGroupIds.Insert(groupId);
 		}
 
-		int groupCount = location.m_aGroupIds.Count();
 		location.m_aGroupIds.Clear();
-		location.m_bActive = false;
+		foreach (EntityID pendingGroupId : pendingGroupIds)
+			location.m_aGroupIds.Insert(pendingGroupId);
+
+		location.m_bActive = !pendingGroupIds.IsEmpty();
 		location.m_bSpawning = false;
 		location.m_iPendingGroups = 0;
 		location.m_iSuccessfulGroups = 0;
-		Print(string.Format("[SPT_WorldGarrison] Despawn de %1 (%2 grupos)", location.m_sName, groupCount));
+		Print(string.Format("[SPT_WorldGarrison] Despawn de %1 | removidos=%2 | pendentes=%3",
+			location.m_sName, groupCount - pendingGroupIds.Count(), pendingGroupIds.Count()));
 	}
 
 	protected void CompletePendingGroup(SPT_GarrisonLocation location, bool successful)
@@ -844,10 +849,26 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		Print("[SPT_WorldGarrison][DEBUG] " + message);
 	}
 
-	protected void DeleteGroup(notnull SCR_AIGroup group)
+	protected bool DeleteGroup(notnull SCR_AIGroup group)
 	{
-		SPT_AIGarrisonHelper.UngarrisonGroup(group);
+		// The group, its members and its waypoints form one editable hierarchy.
+		// Let the editor lifecycle remove that hierarchy in one operation instead
+		// of deleting each registered entity behind SCR_EditableEntityCore.
+		SPT_AIGarrisonHelper.UngarrisonGroup(group, false);
 
+		SCR_EditableEntityComponent editableGroup =
+			SCR_EditableEntityComponent.GetEditableEntity(group);
+		if (editableGroup)
+		{
+			if (editableGroup.Delete(false, false))
+				return true;
+
+			Print(string.Format("[SPT_WorldGarrison] Exclusao recusada pelo ciclo de vida editavel; grupo mantido para nova tentativa | grupo=%1",
+				group), LogLevel.WARNING);
+			return false;
+		}
+
+		// Non-editable group prefabs do not participate in the editor hierarchy.
 		array<AIAgent> agents = {};
 		group.GetAgents(agents);
 		foreach (AIAgent agent : agents)
@@ -861,6 +882,7 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		}
 
 		SCR_EntityHelper.DeleteEntityAndChildren(group);
+		return true;
 	}
 
 	protected int GetCQBGroupPrefabCount()

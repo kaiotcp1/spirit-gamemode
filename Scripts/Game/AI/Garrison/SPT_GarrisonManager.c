@@ -651,8 +651,8 @@ class SPT_GarrisonManager
 			if (patrol.m_Group.GetCurrentWaypoint())
 				continue;
 
-			if (patrol.m_Waypoint)
-				SCR_EntityHelper.DeleteEntityAndChildren(patrol.m_Waypoint);
+			if (patrol.m_Waypoint && !DeletePatrolWaypoint(patrol.m_Waypoint))
+				continue;
 			patrol.m_Waypoint = null;
 			if (patrol.m_iWaitPolls > 0)
 			{
@@ -806,7 +806,7 @@ class SPT_GarrisonManager
 	}
 
 	// Libera um grupo: destrava o movimento de todos os membros guarnecidos e remove os registros
-	void Ungarrison(SCR_AIGroup group)
+	void Ungarrison(SCR_AIGroup group, bool deleteWaypoints = true)
 	{
 		if (!group)
 			return;
@@ -826,9 +826,27 @@ class SPT_GarrisonManager
 			SPT_GarrisonInteriorPatrol patrol = m_aInteriorPatrols[p];
 			if (patrol.m_Group != group)
 				continue;
-			if (patrol.m_Waypoint)
-				SCR_EntityHelper.DeleteEntityAndChildren(patrol.m_Waypoint);
+			if (deleteWaypoints && patrol.m_Waypoint && !DeletePatrolWaypoint(patrol.m_Waypoint))
+				continue;
 			m_aInteriorPatrols.Remove(p);
 		}
+	}
+
+	protected bool DeletePatrolWaypoint(notnull AIWaypoint waypoint)
+	{
+		SCR_EditableEntityComponent editableWaypoint =
+			SCR_EditableEntityComponent.GetEditableEntity(waypoint);
+		if (editableWaypoint)
+		{
+			if (editableWaypoint.Delete(false, false))
+				return true;
+
+			Print(string.Format("[SPT_Garrison] Exclusao recusada pelo ciclo de vida editavel; waypoint mantido para nova tentativa | waypoint=%1",
+				waypoint), LogLevel.WARNING);
+			return false;
+		}
+
+		SCR_EntityHelper.DeleteEntityAndChildren(waypoint);
+		return true;
 	}
 }

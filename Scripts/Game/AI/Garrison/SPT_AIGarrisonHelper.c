@@ -34,10 +34,10 @@ class SPT_AIGarrisonHelper
 	}
 
 	// Encaminha um pedido de liberacao de grupo (desguarnecer) para o gerenciador central
-	static void UngarrisonGroup(SCR_AIGroup group)
+	static void UngarrisonGroup(SCR_AIGroup group, bool deleteWaypoints = true)
 	{
 		if (!group)
 			return;
-		SPT_GarrisonManager.Get().Ungarrison(group);
+		SPT_GarrisonManager.Get().Ungarrison(group, deleteWaypoints);
 	}
 }
