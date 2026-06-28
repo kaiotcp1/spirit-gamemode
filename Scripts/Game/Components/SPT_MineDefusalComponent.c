@@ -102,14 +102,14 @@ class SPT_MineDefusalComponent : ScriptComponent
 				SCR_HintManagerComponent hintMgr = SCR_HintManagerComponent.GetInstance();
 				if (hintMgr)
 				{
-					string hintMsg = "Press [Interact] to defuse " + m_sMineType;
+					string hintMsg = "Pressione [Interagir] para desarmar " + m_sMineType;
 					if (m_bRequiresTool)
-						hintMsg = hintMsg + " (EOD tool required)";
+						hintMsg = hintMsg + " (Kit EOD necessario)";
 					hintMgr.ShowCustom(hintMsg);
 				}
 
 				if (m_bDebugMode)
-					Print(string.Format("[SPT_MineDefusal] Player in range | Wires: %1 | Timer: %2s | Tool: %3",
+					Print(string.Format("[SPT_MineDefusal] Jogador no alcance | Fios: %1 | Temporizador: %2s | Kit: %3",
 						m_iWireCount, m_fTimerSeconds, m_bRequiresTool));
 			}
 		}
@@ -139,7 +139,7 @@ class SPT_MineDefusalComponent : ScriptComponent
 		m_iPlayerId = playerId;
 		Replication.BumpMe();
 
-		DebugLog(string.Format("Defusal started by player %1 | CorrectWire: %2/%3 | Timer: %4s",
+		DebugLog(string.Format("Desarme iniciado pelo jogador %1 | FioCorreto: %2/%3 | Temporizador: %4s",
 			playerId, m_iCorrectWire, m_iWireCount, m_fRemainingTime));
 
 		GetGame().GetCallqueue().CallLater(TimerTick, 1000, true);
@@ -183,7 +183,7 @@ class SPT_MineDefusalComponent : ScriptComponent
 		}
 		else
 		{
-			DebugLog(string.Format("Wrong wire selected: %1 (correct was %2)", wireIndex, m_iCorrectWire));
+			DebugLog(string.Format("Fio errado selecionado: %1 (correto era %2)", wireIndex, m_iCorrectWire));
 			Detonate();
 		}
 	}
@@ -222,7 +222,7 @@ class SPT_MineDefusalComponent : ScriptComponent
 		Replication.BumpMe();
 		GetGame().GetCallqueue().Remove(TimerTick);
 
-		DebugLog("Defusal cancelled by player");
+		DebugLog("Desarme cancelado pelo jogador");
 	}
 
 	void RequestCancelDefusal()
@@ -253,7 +253,7 @@ class SPT_MineDefusalComponent : ScriptComponent
 		if (m_fRemainingTime <= 0)
 		{
 			m_bIsBeingDefused = false;
-			DebugLog("Timer expired - detonating");
+			DebugLog("Temporizador expirado - detonando");
 			Detonate();
 		}
 	}
@@ -286,7 +286,7 @@ class SPT_MineDefusalComponent : ScriptComponent
 			}
 		}
 
-		DebugLog("Mine successfully defused");
+		DebugLog("Mina desarmada com sucesso");
 		ShowResultHint(true);
 		RpcDo_DefusalResult(true);
 		DeleteDefusedMine(mine);
@@ -329,7 +329,7 @@ class SPT_MineDefusalComponent : ScriptComponent
 			}
 		}
 
-		DebugLog("Mine detonated");
+		DebugLog("Mina detonada");
 		ShowResultHint(false);
 		RpcDo_DefusalResult(false);
 		DeleteProxyDelayed();
@@ -374,9 +374,9 @@ class SPT_MineDefusalComponent : ScriptComponent
 			return;
 
 		if (success)
-			hintMgr.ShowCustom("MINE DEFUSED - Wire cut correctly");
+			hintMgr.ShowCustom("MINA DESARMADA - Fio cortado corretamente");
 		else
-			hintMgr.ShowCustom("MINE DETONATED - Wrong wire!");
+			hintMgr.ShowCustom("MINA DETONADA - Fio errado!");
 	}
 
 	void RpcDo_DefusalResult(bool success)
@@ -433,7 +433,7 @@ class SPT_MineDefusalComponent : ScriptComponent
 		if (owner)
 			pos = owner.GetOrigin();
 
-		Print(string.Format("[SPT_MineDefusal] %1 | Pos: %2 | Wires: %3 | Correct: %4 | Timer: %5 | Tool: %6 | Defused: %7 | Active: %8",
+		Print(string.Format("[SPT_MineDefusal] %1 | Pos: %2 | Fios: %3 | Correto: %4 | Temporiz: %5 | Kit: %6 | Desarmada: %7 | Ativo: %8",
 			message, pos, m_iWireCount, m_iCorrectWire, m_fTimerSeconds, m_bRequiresTool, m_bDefused, m_bIsBeingDefused));
 	}
 }

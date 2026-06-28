@@ -56,13 +56,13 @@ class SPT_MineDefusalUIContext : SPT_UIContext
 		string resultText;
 		if (success)
 		{
-			resultText = "MINE DEFUSED";
-			ShowHint("Mine successfully defused");
+			resultText = "MINA DESARMADA";
+			ShowHint("Mina desarmada com sucesso");
 		}
 		else
 		{
-			resultText = "MINE DETONATED";
-			ShowHint("Mine detonated");
+			resultText = "MINA DETONADA";
+			ShowHint("Mina detonada");
 		}
 
 		UpdateResultDisplay(resultText, success);
@@ -287,17 +287,17 @@ class SPT_MineDefusalUIContext : SPT_UIContext
 		if (!m_MineDefComp)
 			return;
 
-		TextWidget typeText = TextWidget.Cast(m_wRoot.FindAnyWidget("TypeText"));
+			TextWidget typeText = TextWidget.Cast(m_wRoot.FindAnyWidget("TypeText"));
 		if (typeText)
-			typeText.SetText("Type: " + m_MineDefComp.GetMineType());
+			typeText.SetText("Tipo: " + m_MineDefComp.GetMineType());
 
 		TextWidget toolText = TextWidget.Cast(m_wRoot.FindAnyWidget("ToolText"));
 		if (toolText)
 		{
 			if (m_MineDefComp.RequiresTool())
-				toolText.SetText("Requires: EOD Toolkit");
+				toolText.SetText("Requer: Kit EOD");
 			else
-				toolText.SetText("No tool required");
+				toolText.SetText("Sem ferramenta necessaria");
 		}
 
 		m_fLocalTimer = m_MineDefComp.GetRemainingTime();
@@ -310,7 +310,7 @@ class SPT_MineDefusalUIContext : SPT_UIContext
 		if (timerText)
 		{
 			int seconds = Math.Round(m_fLocalTimer);
-			timerText.SetText(string.Format("Time: %1s", seconds));
+			timerText.SetText(string.Format("Tempo: %1s", seconds));
 		}
 
 		ProgressBarWidget timerBar = ProgressBarWidget.Cast(m_wRoot.FindAnyWidget("TimerBar"));

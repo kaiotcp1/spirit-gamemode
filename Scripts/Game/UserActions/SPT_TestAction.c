@@ -4,12 +4,12 @@ class SPT_TestAction : ScriptedUserAction
 	{
 		SCR_HintManagerComponent hint = SCR_HintManagerComponent.GetInstance();
 		if (hint)
-			hint.ShowCustom("[SPT] TestAction works on " + pOwnerEntity.ClassName());
+			hint.ShowCustom("[SPT] AcaoTeste funciona em " + pOwnerEntity.ClassName());
 	}
 
 	override bool GetActionNameScript(out string outName)
 	{
-		outName = "SPT Test Action";
+		outName = "SPT Acao de Teste";
 		return true;
 	}
 

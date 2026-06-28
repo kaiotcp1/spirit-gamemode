@@ -68,7 +68,7 @@ class SPT_MineDefusalManagerComponent : ScriptComponent
 		);
 
 		int addedCount = m_aProcessedMines.Count() - previousCount;
-		Print(string.Format("[SPT_MineDefusalManager] Scan complete: %1 new, %2 total mines configured",
+		Print(string.Format("[SPT_MineDefusalManager] Varredura completa: %1 novas, %2 minas configuradas no total",
 			addedCount, m_aProcessedMines.Count()));
 	}
 
@@ -124,7 +124,7 @@ class SPT_MineDefusalManagerComponent : ScriptComponent
 		Resource proxyResource = Resource.Load(m_sDefusalProxyPrefab);
 		if (!proxyResource)
 		{
-			Print("[SPT_MineDefusalManager] Could not load defusal proxy prefab: " + m_sDefusalProxyPrefab, LogLevel.ERROR);
+			Print("[SPT_MineDefusalManager] Nao foi possivel carregar o prefab de proxy de desarme: " + m_sDefusalProxyPrefab, LogLevel.ERROR);
 			return false;
 		}
 
@@ -137,7 +137,7 @@ class SPT_MineDefusalManagerComponent : ScriptComponent
 		IEntity proxy = GetGame().SpawnEntityPrefab(proxyResource, GetGame().GetWorld(), spawnParams);
 		if (!proxy)
 		{
-			Print(string.Format("[SPT_MineDefusalManager] Failed to create interaction proxy for %1 at %2",
+			Print(string.Format("[SPT_MineDefusalManager] Falha ao criar proxy de interacao para %1 em %2",
 				mine.ClassName(), mine.GetOrigin()), LogLevel.ERROR);
 			return false;
 		}
@@ -147,7 +147,7 @@ class SPT_MineDefusalManagerComponent : ScriptComponent
 		);
 		if (!proxyComponent)
 		{
-			Print("[SPT_MineDefusalManager] Proxy prefab has no SPT_MineDefusalComponent", LogLevel.ERROR);
+			Print("[SPT_MineDefusalManager] Prefab de proxy nao possui SPT_MineDefusalComponent", LogLevel.ERROR);
 			SCR_EntityHelper.DeleteEntityAndChildren(proxy);
 			return false;
 		}
@@ -205,7 +205,7 @@ class SPT_MineDefusalManagerComponent : ScriptComponent
 
 	protected void LogConfiguredMine(IEntity mine, bool usesProxy)
 	{
-		Print(string.Format("[SPT_MineDefusalManager] Configured %1 at %2 | proxy: %3 | wires: %4 | timer: %5",
+		Print(string.Format("[SPT_MineDefusalManager] Configurado %1 em %2 | proxy: %3 | fios: %4 | temporizador: %5",
 			mine.ClassName(), mine.GetOrigin(), usesProxy, m_iDefaultWireCount, m_fDefaultTimer));
 	}
 }

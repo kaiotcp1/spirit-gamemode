@@ -48,17 +48,8 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 	[Attribute("2", desc: "Seconds between player-distance checks")]
 	protected float m_fUpdateInterval;
 
-	[Attribute("15", desc: "Minimum units generated per active location")]
-	protected int m_iMinimumUnits;
-
-	[Attribute("15", desc: "Maximum units generated per active location. Set above minimum to randomize, for example 15 to 30.")]
-	protected int m_iMaximumUnits;
-
 	[Attribute("500", desc: "Game Master AI budget used by the garrison. Increase this when many locations can be active simultaneously. Set to 0 to keep the scenario budget unchanged.")]
 	protected int m_iGameMasterAIBudget;
-
-	[Attribute("3", desc: "Maximum soldiers assigned to one building/group")]
-	protected int m_iUnitsPerBuilding;
 
 	[Attribute("175", desc: "Radius around each map location used to find buildings")]
 	protected float m_fBuildingSearchRadius;
@@ -79,6 +70,14 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 
 	[Attribute("{D807C7047E818488}Prefabs/Groups/BLUFOR/Group_US_SniperTeam.et", UIWidgets.ResourceNamePicker, desc: "BLUFOR group templates. Do not use _NotSpawned ambient patrol prefabs.", params: "et class=SCR_AIGroup")]
 	protected ref array<ResourceName> m_aBluforGroupPrefabs = {
+		"{D807C7047E818488}Prefabs/Groups/BLUFOR/Group_US_SniperTeam.et",
+		"{D807C7047E818488}Prefabs/Groups/BLUFOR/Group_US_SniperTeam.et",
+		"{D807C7047E818488}Prefabs/Groups/BLUFOR/Group_US_SniperTeam.et",
+		"{D807C7047E818488}Prefabs/Groups/BLUFOR/Group_US_SniperTeam.et",
+		"{D807C7047E818488}Prefabs/Groups/BLUFOR/Group_US_SniperTeam.et",
+		"{D807C7047E818488}Prefabs/Groups/BLUFOR/Group_US_SniperTeam.et",
+		"{D807C7047E818488}Prefabs/Groups/BLUFOR/Group_US_SniperTeam.et",
+		"{D807C7047E818488}Prefabs/Groups/BLUFOR/Group_US_SniperTeam.et",
 		"{D807C7047E818488}Prefabs/Groups/BLUFOR/Group_US_SniperTeam.et"
 	};
 
@@ -86,6 +85,9 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 	protected ref array<ResourceName> m_aIndependentGroupPrefabs = {
 		"{22F33D3EC8F281AB}Prefabs/Groups/INDFOR/Group_FIA_MachineGunTeam.et"
 	};
+
+	[Attribute("{FFF9518F73279473}PrefabsEditable/Auto/AI/Waypoints/E_AIWaypoint_Move.et", UIWidgets.ResourceNamePicker, desc: "Waypoint used by groups patrolling between buildings", params: "et")]
+	protected ResourceName m_sPatrolWaypointPrefab;
 
 	protected ref array<ref SPT_GarrisonLocation> m_aLocations = new array<ref SPT_GarrisonLocation>();
 	protected int m_iDebugUpdateCounter;
@@ -96,23 +98,23 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 
 		bool editMode = SCR_Global.IsEditMode();
 		bool isServer = Replication.IsServer();
-		Print(string.Format("[SPT_WorldGarrison] OnPostInit | owner=%1 | editMode=%2 | server=%3 | debug=%4",
+		Print(string.Format("[SPT_WorldGarrison] OnPostInit | dono=%1 | modoEdicao=%2 | servidor=%3 | debug=%4",
 			owner, editMode, isServer, m_bDebug));
 
 		if (editMode)
 		{
-			DebugLog("Initialization skipped because the world is in edit mode.");
+			DebugLog("Inicializacao ignorada porque o mundo esta em modo de edicao.");
 			return;
 		}
 
 		if (!isServer)
 		{
-			DebugLog("Initialization skipped on client; the server owns garrison spawning.");
+			DebugLog("Inicializacao ignorada no cliente; o servidor controla o spawn da guarnicao.");
 			return;
 		}
 
 		ValidateSettings();
-		DebugLog(string.Format("Initialization scheduled in 1000 ms | faction=%1 | configuredGroupPrefabs=%2",
+		DebugLog(string.Format("Inicializacao agendada em 1000 ms | faccao=%1 | prefabsGrupoConfigurados=%2",
 			m_eFaction, GetSelectedGroupPrefabCount()));
 		if (m_iGameMasterAIBudget > 0)
 			GetGame().GetCallqueue().CallLater(ConfigureGameMasterBudget, 1000, false, 10);
@@ -130,17 +132,8 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		if (m_fUpdateInterval < 0.25)
 			m_fUpdateInterval = 0.25;
 
-		if (m_iMinimumUnits < 1)
-			m_iMinimumUnits = 1;
-
-		if (m_iMaximumUnits < m_iMinimumUnits)
-			m_iMaximumUnits = m_iMinimumUnits;
-
 		if (m_iGameMasterAIBudget < 0)
 			m_iGameMasterAIBudget = 0;
-
-		if (m_iUnitsPerBuilding < 1)
-			m_iUnitsPerBuilding = 1;
 
 		if (m_fBuildingSearchRadius < 25)
 			m_fBuildingSearchRadius = 25;
@@ -157,12 +150,12 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		{
 			if (retriesLeft > 0)
 			{
-				DebugLog(string.Format("Game Master budget component not ready; retrying (%1 attempts left).", retriesLeft));
+				DebugLog(string.Format("Componente de orcamento Game Master nao esta pronto; tentando novamente (%1 tentativas restantes).", retriesLeft));
 				GetGame().GetCallqueue().CallLater(ConfigureGameMasterBudget, 1000, false, retriesLeft - 1);
 				return;
 			}
 
-			Print("[SPT_WorldGarrison] Could not find SCR_BudgetEditorComponent; Game Master AI budget was not changed.", LogLevel.WARNING);
+			Print("[SPT_WorldGarrison] SCR_BudgetEditorComponent nao encontrado; orcamento de IA do Game Master nao foi alterado.", LogLevel.WARNING);
 			return;
 		}
 
@@ -181,12 +174,43 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			budgetComponent.SetMaxBudgetValue(EEditableEntityBudget.AI_SERVER, m_iGameMasterAIBudget);
 			configuredComponents++;
 
-			DebugLog(string.Format("Game Master budget updated | component=%1 | AI=%2->%3 | AI_SERVER=%4->%5",
+			DebugLog(string.Format("Orcamento Game Master atualizado | componente=%1 | IA=%2->%3 | IA_SERVIDOR=%4->%5",
 				budgetComponent, previousAI, m_iGameMasterAIBudget, previousServerAI, m_iGameMasterAIBudget));
 		}
 
-		Print(string.Format("[SPT_WorldGarrison] Game Master AI budget set to %1 on %2 component(s).",
+		Print(string.Format("[SPT_WorldGarrison] Orcamento de IA do Game Master definido para %1 em %2 componente(s).",
 			m_iGameMasterAIBudget, configuredComponents));
+	}
+
+	protected void ConfigureAIWorldLimits()
+	{
+		if (m_iGameMasterAIBudget <= 0)
+			return;
+
+		AIWorld aiWorld = GetGame().GetAIWorld();
+		if (!aiWorld)
+		{
+			Print("[SPT_WorldGarrison] AIWorld nao esta disponivel; limites reais de IA nao foram alterados.", LogLevel.WARNING);
+			return;
+		}
+
+		int previousAILimit = aiWorld.GetAILimit();
+		int previousActiveLimit = aiWorld.GetLimitOfActiveAIs();
+		int newAILimit = previousAILimit;
+		if (newAILimit < m_iGameMasterAIBudget)
+			newAILimit = m_iGameMasterAIBudget;
+		int newActiveLimit = previousActiveLimit;
+		if (newActiveLimit < m_iGameMasterAIBudget)
+			newActiveLimit = m_iGameMasterAIBudget;
+		aiWorld.SetAILimit(newAILimit);
+		aiWorld.SetLimitOfActiveAIs(newActiveLimit);
+		Print(string.Format("[SPT_WorldGarrison] Limites AIWorld atualizados | total=%1->%2 | ativos=%3->%4 | atuais=%5 | ativosAtuais=%6",
+			previousAILimit,
+			newAILimit,
+			previousActiveLimit,
+			newActiveLimit,
+			aiWorld.GetCurrentAmountOfLimitedAIs(),
+			aiWorld.GetCurrentNumOfActiveAIs()));
 	}
 
 	protected void InitializeLocations()
@@ -194,11 +218,12 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		BaseWorld world = GetGame().GetWorld();
 		if (!world)
 		{
-			Print("[SPT_WorldGarrison] Initialization failed: game world is null.", LogLevel.ERROR);
+			Print("[SPT_WorldGarrison] Falha na inicializacao: mundo do jogo e nulo.", LogLevel.ERROR);
 			return;
 		}
 
-		DebugLog("Scanning map descriptors for settlements and strategic sites...");
+		ConfigureAIWorldLimits();
+		DebugLog("Verificando descritores do mapa em busca de assentamentos e locais estrategicos...");
 
 		world.QueryEntitiesBySphere(
 			vector.Zero,
@@ -208,16 +233,16 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			EQueryEntitiesFlags.ALL
 		);
 
-		Print(string.Format("[SPT_WorldGarrison] Registered %1 locations | faction %2 | spawn %3m | despawn %4m | units %5-%6",
-			m_aLocations.Count(), m_eFaction, m_fSpawnDistance, m_fDespawnDistance, m_iMinimumUnits, m_iMaximumUnits));
+		Print(string.Format("[SPT_WorldGarrison] %1 locais registrados | faccao %2 | spawn %3m | despawn %4m | grupos completos por local=%5",
+			m_aLocations.Count(), m_eFaction, m_fSpawnDistance, m_fDespawnDistance, GetSelectedGroupPrefabCount()));
 
 		if (m_aLocations.IsEmpty())
-			Print("[SPT_WorldGarrison] No supported map locations were found. Check descriptor types and include settings.", LogLevel.WARNING);
+			Print("[SPT_WorldGarrison] Nenhum local de mapa suportado foi encontrado. Verifique os tipos de descritor e as configuracoes de inclusao.", LogLevel.WARNING);
 
 		UpdateLocations();
 		int updateIntervalMs = Math.Round(m_fUpdateInterval * 1000);
 		GetGame().GetCallqueue().CallLater(UpdateLocations, updateIntervalMs, true);
-		DebugLog(string.Format("Distance update loop started with interval %1 ms.", updateIntervalMs));
+		DebugLog(string.Format("Loop de atualizacao de distancia iniciado com intervalo de %1 ms.", updateIntervalMs));
 	}
 
 	protected bool FilterLocation(IEntity entity)
@@ -252,7 +277,7 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		}
 
 		m_aLocations.Insert(new SPT_GarrisonLocation(center, name, descriptor.GetBaseType()));
-		DebugLog(string.Format("Location registered | name=%1 | type=%2 | position=%3",
+		DebugLog(string.Format("Local registrado | nome=%1 | tipo=%2 | posicao=%3",
 			name, descriptor.GetBaseType(), center));
 		return true;
 	}
@@ -316,13 +341,13 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		array<vector> playerPositions = {};
 		CollectPlayerPositions(playerPositions);
 		if (logThisUpdate)
-			DebugLog(string.Format("Distance update | playersWithPosition=%1 | locations=%2",
+			DebugLog(string.Format("Atualizacao de distancia | jogadoresComPosicao=%1 | locais=%2",
 				playerPositions.Count(), m_aLocations.Count()));
 
 		if (playerPositions.IsEmpty())
 		{
 			if (logThisUpdate)
-				DebugLog("No valid player-controlled or main entities were found.");
+				DebugLog("Nenhuma entidade controlada ou principal valida foi encontrada.");
 
 			foreach (SPT_GarrisonLocation emptyServerLocation : m_aLocations)
 			{
@@ -345,18 +370,18 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			float nearestPlayerSq = GetNearestPlayerDistanceSq(location.m_vCenter, playerPositions);
 			if (logThisUpdate && nearestPlayerSq <= despawnDistanceSq * 4)
 			{
-				DebugLog(string.Format("Location distance | name=%1 | distance=%2m | active=%3 | unavailable=%4",
+				DebugLog(string.Format("Distancia do local | nome=%1 | distancia=%2m | ativo=%3 | indisponivel=%4",
 					location.m_sName, Math.Sqrt(nearestPlayerSq), location.m_bActive, location.m_bUnavailable));
 			}
 
 			if (!location.m_bActive && nearestPlayerSq <= spawnDistanceSq)
 			{
-				DebugLog(string.Format("Spawn threshold reached for %1.", location.m_sName));
+				DebugLog(string.Format("Limite de spawn atingido para %1.", location.m_sName));
 				SpawnLocation(location);
 			}
 			else if (location.m_bActive && nearestPlayerSq > despawnDistanceSq)
 			{
-				DebugLog(string.Format("Despawn threshold reached for %1.", location.m_sName));
+				DebugLog(string.Format("Limite de despawn atingido para %1.", location.m_sName));
 				DespawnLocation(location);
 			}
 		}
@@ -369,14 +394,14 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		PlayerManager playerManager = GetGame().GetPlayerManager();
 		if (!playerManager)
 		{
-			DebugLog("PlayerManager is null.");
+			DebugLog("PlayerManager e nulo.");
 			return;
 		}
 
 		array<int> playerIds = {};
 		playerManager.GetPlayers(playerIds);
 		if (m_bDebug && m_iDebugUpdateCounter % 5 == 0)
-			DebugLog(string.Format("PlayerManager returned %1 connected players.", playerIds.Count()));
+			DebugLog(string.Format("PlayerManager retornou %1 jogadores conectados.", playerIds.Count()));
 
 		foreach (int playerId : playerIds)
 		{
@@ -392,13 +417,13 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 				positions.Insert(playerEntity.GetOrigin());
 				if (m_bDebug && m_iDebugUpdateCounter % 5 == 0)
 				{
-					DebugLog(string.Format("Player position | id=%1 | source=%2 | class=%3 | position=%4",
+					DebugLog(string.Format("Posicao do jogador | id=%1 | origem=%2 | classe=%3 | posicao=%4",
 						playerId, source, playerEntity.ClassName(), playerEntity.GetOrigin()));
 				}
 			}
 			else
 			{
-				DebugLog(string.Format("No spatial entity found for player id %1.", playerId));
+				DebugLog(string.Format("Nenhuma entidade espacial encontrada para o jogador id %1.", playerId));
 			}
 		}
 	}
@@ -418,12 +443,13 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 
 	protected void SpawnLocation(notnull SPT_GarrisonLocation location)
 	{
-		DebugLog(string.Format("SpawnLocation started | name=%1 | center=%2 | configuredGroupPrefabs=%3",
+		PruneMissingGroupIds(location);
+		DebugLog(string.Format("SpawnLocation iniciado | nome=%1 | centro=%2 | prefabsGrupoConfigurados=%3",
 			location.m_sName, location.m_vCenter, GetSelectedGroupPrefabCount()));
 
 		if (GetSelectedGroupPrefabCount() < 1)
 		{
-			Print(string.Format("[SPT_WorldGarrison] No group prefabs configured for faction %1.", m_eFaction), LogLevel.ERROR);
+			Print(string.Format("[SPT_WorldGarrison] Nenhum prefab de grupo configurado para a faccao %1.", m_eFaction), LogLevel.ERROR);
 			return;
 		}
 
@@ -434,12 +460,12 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			m_fBuildingSearchRadius,
 			buildings
 		);
-		DebugLog(string.Format("Building detector returned %1 structural centers within %2m.",
+		DebugLog(string.Format("Detector de construcoes retornou %1 centros estruturais em %2m.",
 			buildings.Count(), m_fBuildingSearchRadius));
 
 		if (buildings.IsEmpty())
 		{
-			Print(string.Format("[SPT_WorldGarrison] No usable buildings around %1 at %2",
+			Print(string.Format("[SPT_WorldGarrison] Nenhuma construcao utilizavel ao redor de %1 em %2",
 				location.m_sName, location.m_vCenter), LogLevel.WARNING);
 			location.m_bUnavailable = true;
 			return;
@@ -447,57 +473,58 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 
 		ShufflePositions(buildings);
 
-		int desiredUnits = Math.RandomInt(m_iMinimumUnits, m_iMaximumUnits + 1);
 		location.m_bSpawning = true;
 		location.m_iPendingGroups = 0;
 		location.m_iSuccessfulGroups = 0;
-		location.m_iDesiredUnits = desiredUnits;
-		int remainingUnits = desiredUnits;
+		location.m_iDesiredUnits = 0;
 		int buildingIndex = 0;
-		int spawnAttempts = 0;
-		int maximumSpawnAttempts = desiredUnits + buildings.Count();
 
-		while (remainingUnits > 0 && spawnAttempts < maximumSpawnAttempts)
+		array<ResourceName> groupPrefabs = GetSelectedGroupPrefabs();
+		DebugLog(string.Format("Lista selecionada para spawn | faccao=%1 | entradas=%2",
+			m_eFaction, groupPrefabs.Count()));
+		foreach (int prefabIndex, ResourceName groupPrefab : groupPrefabs)
 		{
-			spawnAttempts++;
-			int requestedUnits = m_iUnitsPerBuilding;
-			if (requestedUnits > remainingUnits)
-				requestedUnits = remainingUnits;
-
-			int spawnedUnits;
 			int selectedBuilding = buildingIndex % buildings.Count();
 			vector buildingCenter = buildings[selectedBuilding];
-			ResourceName groupPrefab;
-			Resource groupResource;
-			if (!SelectRandomGroupResource(groupPrefab, groupResource))
+			buildingIndex++;
+
+			if (groupPrefab.IsEmpty())
 			{
-				Print(string.Format("[SPT_WorldGarrison] None of the %1 configured group prefabs for faction %2 could be loaded.",
-					GetSelectedGroupPrefabCount(), m_eFaction), LogLevel.ERROR);
-				break;
+				Print(string.Format("[SPT_WorldGarrison] Entrada vazia na lista de grupos no indice %1.", prefabIndex), LogLevel.WARNING);
+				continue;
 			}
 
-			DebugLog(string.Format("Random group prefab selected | attempt=%1 | prefab=%2",
-				spawnAttempts, groupPrefab));
-			SCR_AIGroup group = SpawnGroup(groupResource, buildingCenter, requestedUnits, spawnedUnits);
-			buildingIndex++;
+			Resource groupResource = Resource.Load(groupPrefab);
+			if (!groupResource)
+			{
+				Print(string.Format("[SPT_WorldGarrison] Nao foi possivel carregar o grupo no indice %1: %2",
+					prefabIndex, groupPrefab), LogLevel.ERROR);
+				continue;
+			}
+
+			int spawnedUnits;
+			DebugLog(string.Format("Spawnando grupo completo da lista | indice=%1 | prefab=%2 | centro=%3",
+				prefabIndex, groupPrefab, buildingCenter));
+			SCR_AIGroup group = SpawnGroup(groupResource, buildingCenter, spawnedUnits);
 			if (!group)
 			{
-				DebugLog(string.Format("Group spawn attempt %1 failed at %2.", spawnAttempts, buildingCenter));
+				Print(string.Format("[SPT_WorldGarrison] Falha ao spawnar grupo completo no indice %1: %2",
+					prefabIndex, groupPrefab), LogLevel.ERROR);
 				continue;
 			}
 
 			if (spawnedUnits < 1)
 			{
-				DebugLog(string.Format("Spawned group %1 reported zero requested members; deleting it.", group));
-				DeleteGroup(group);
+				Print(string.Format("[SPT_WorldGarrison] Grupo no indice %1 nao possui slots de unidades: %2",
+					prefabIndex, groupPrefab), LogLevel.ERROR);
 				continue;
 			}
 
 			location.m_aGroupIds.Insert(group.GetID());
 			location.m_iPendingGroups++;
-			remainingUnits = remainingUnits - spawnedUnits;
-			DebugLog(string.Format("Group created and members requested | id=%1 | requested=%2 | center=%3 | remaining=%4",
-				group.GetID(), spawnedUnits, buildingCenter, remainingUnits));
+			location.m_iDesiredUnits += spawnedUnits;
+			DebugLog(string.Format("Grupo completo criado | id=%1 | membros=%2 | centro=%3",
+				group.GetID(), spawnedUnits, buildingCenter));
 			GetGame().GetCallqueue().CallLater(
 				WaitForGroupMembers,
 				250,
@@ -513,16 +540,15 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		if (location.m_aGroupIds.IsEmpty())
 		{
 			location.m_bSpawning = false;
-			Print(string.Format("[SPT_WorldGarrison] Failed to create any groups for %1.", location.m_sName), LogLevel.ERROR);
+			Print(string.Format("[SPT_WorldGarrison] Falha ao criar grupos para %1.", location.m_sName), LogLevel.ERROR);
 			return;
 		}
 
-		int actualUnits = desiredUnits - remainingUnits;
-		Print(string.Format("[SPT_WorldGarrison] Requested %1/%2 units in %3 (%4 groups); waiting for agents",
-			actualUnits, desiredUnits, location.m_sName, location.m_aGroupIds.Count()));
+		Print(string.Format("[SPT_WorldGarrison] Lista completa solicitada em %1 | grupos=%2 | unidades=%3; aguardando agentes",
+			location.m_sName, location.m_aGroupIds.Count(), location.m_iDesiredUnits));
 	}
 
-	protected SCR_AIGroup SpawnGroup(Resource groupResource, vector buildingCenter, int requestedUnits, out int spawnedUnits)
+	protected SCR_AIGroup SpawnGroup(Resource groupResource, vector buildingCenter, out int spawnedUnits)
 	{
 		spawnedUnits = 0;
 
@@ -532,36 +558,89 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		buildingCenter[1] = GetGame().GetWorld().GetSurfaceY(buildingCenter[0], buildingCenter[2]) + 0.2;
 		spawnParams.Transform[3] = buildingCenter;
 
+		// Impede o EOnInit do prefab de tentar gerar membros antes de definirmos
+		// o tamanho completo. A fila e preparada manualmente logo abaixo.
+		SCR_AIGroup.IgnoreSpawning(true);
 		IEntity spawnedEntity = GetGame().SpawnEntityPrefab(groupResource, GetGame().GetWorld(), spawnParams);
+		SCR_AIGroup.IgnoreSpawning(false);
 
 		SCR_AIGroup group = SCR_AIGroup.Cast(spawnedEntity);
 		if (!group)
 		{
-			DebugLog(string.Format("SpawnEntityPrefab did not return SCR_AIGroup | entity=%1", spawnedEntity));
+			DebugLog(string.Format("SpawnEntityPrefab nao retornou SCR_AIGroup | entidade=%1", spawnedEntity));
 			if (spawnedEntity)
 				SCR_EntityHelper.DeleteEntityAndChildren(spawnedEntity);
 			return null;
 		}
 
 		int capacity = group.m_aUnitPrefabSlots.Count();
-		DebugLog(string.Format("Group template instantiated | group=%1 | unitSlotCapacity=%2 | requested=%3",
-			group, capacity, requestedUnits));
+		DebugLog(string.Format("Template de grupo instanciado | grupo=%1 | capacidadeSlotsUnidade=%2",
+			group, capacity));
 		if (capacity < 1)
 		{
-			Print("[SPT_WorldGarrison] Group template has no unit prefab slots", LogLevel.ERROR);
+			Print("[SPT_WorldGarrison] Template de grupo nao possui slots de prefab de unidade", LogLevel.ERROR);
 			return group;
 		}
 
-		int unitsToSpawn = requestedUnits;
-		if (unitsToSpawn > capacity)
-			unitsToSpawn = capacity;
-
-		group.SetNumberOfMembersToSpawn(unitsToSpawn);
-		group.SpawnAllImmediately();
-		spawnedUnits = unitsToSpawn;
-		DebugLog(string.Format("SpawnAllImmediately called | group=%1 | requestedMembers=%2 | currentAgents=%3 | queue=%4 | initializing=%5",
-			group, unitsToSpawn, group.GetAgentsCount(), group.GetSpawnQueueSize(), group.IsInitializing()));
+		group.SetDeleteWhenEmpty(false);
+		spawnedUnits = SpawnGroupMembersDirect(group, buildingCenter);
+		group.SetDeleteWhenEmpty(true);
+		DebugLog(string.Format("Membros diretos finalizados | grupo=%1 | solicitados=%2 | criados=%3 | agentesAtuais=%4",
+			group, capacity, spawnedUnits, group.GetAgentsCount()));
 		return group;
+	}
+
+	protected int SpawnGroupMembersDirect(notnull SCR_AIGroup group, vector center)
+	{
+		int spawnedCount;
+		int slotCount = group.m_aUnitPrefabSlots.Count();
+		for (int i = 0; i < slotCount; i++)
+		{
+			ResourceName memberPrefab = group.m_aUnitPrefabSlots[i];
+			Resource memberResource = Resource.Load(memberPrefab);
+			if (!memberResource)
+			{
+				Print(string.Format("[SPT_WorldGarrison] Nao foi possivel carregar membro %1 do grupo: %2",
+					i, memberPrefab), LogLevel.ERROR);
+				continue;
+			}
+
+			float angle = i * 137.5 * Math.PI / 180.0;
+			int radiusStep = i % 3;
+			float radius = 1.5 + 0.5 * radiusStep;
+			vector memberPosition = center + Vector(Math.Cos(angle) * radius, 0, Math.Sin(angle) * radius);
+			memberPosition[1] = GetGame().GetWorld().GetSurfaceY(memberPosition[0], memberPosition[2]) + 0.2;
+
+			EntitySpawnParams memberParams();
+			memberParams.TransformMode = ETransformMode.WORLD;
+			Math3D.MatrixIdentity4(memberParams.Transform);
+			memberParams.Transform[3] = memberPosition;
+
+			IEntity member = GetGame().SpawnEntityPrefab(memberResource, GetGame().GetWorld(), memberParams);
+			if (!member)
+			{
+				Print(string.Format("[SPT_WorldGarrison] Spawn direto falhou para membro %1: %2",
+					i, memberPrefab), LogLevel.ERROR);
+				continue;
+			}
+
+			if (!group.AddAIEntityToGroup(member))
+			{
+				Print(string.Format("[SPT_WorldGarrison] Nao foi possivel associar membro %1 ao grupo: %2",
+					i, memberPrefab), LogLevel.ERROR);
+				SCR_EntityHelper.DeleteEntityAndChildren(member);
+				continue;
+			}
+
+			FactionAffiliationComponent faction = FactionAffiliationComponent.Cast(
+				member.FindComponent(FactionAffiliationComponent));
+			if (faction)
+				faction.SetAffiliatedFactionByKey(group.m_faction);
+
+			spawnedCount++;
+		}
+
+		return spawnedCount;
 	}
 
 	protected void WaitForGroupMembers(
@@ -573,16 +652,18 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 	{
 		if (!group)
 		{
-			DebugLog(string.Format("Garrison callback skipped: group no longer exists at center %1.", buildingCenter));
+			DebugLog(string.Format("Callback de guarnicao ignorado: grupo nao existe mais no centro %1.", buildingCenter));
+			if (location)
+				PruneMissingGroupIds(location);
 			CompletePendingGroup(location, false);
 			return;
 		}
 
 		int agentCount = group.GetAgentsCount();
-		if (agentCount < 1 && pollsLeft > 0)
+		if (agentCount < expectedMembers && pollsLeft > 0)
 		{
-			DebugLog(string.Format("Waiting for group members | group=%1 | agents=%2 | queue=%3 | initializing=%4 | pollsLeft=%5",
-				group, agentCount, group.GetSpawnQueueSize(), group.IsInitializing(), pollsLeft));
+			DebugLog(string.Format("Aguardando grupo completo | grupo=%1 | agentes=%2/%3 | fila=%4 | inicializando=%5 | tentativasRestantes=%6",
+				group, agentCount, expectedMembers, group.GetSpawnQueueSize(), group.IsInitializing(), pollsLeft));
 			GetGame().GetCallqueue().CallLater(
 				WaitForGroupMembers,
 				250,
@@ -598,7 +679,7 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 
 		if (agentCount < 1)
 		{
-			Print(string.Format("[SPT_WorldGarrison] Group failed to create members after 5 seconds | group=%1 | center=%2",
+			Print(string.Format("[SPT_WorldGarrison] Grupo falhou ao criar membros apos 5 segundos | grupo=%1 | centro=%2",
 				group, buildingCenter), LogLevel.ERROR);
 			RemoveGroupId(location, group.GetID());
 			DeleteGroup(group);
@@ -606,9 +687,13 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			return;
 		}
 
-		DebugLog(string.Format("Sending populated group to SPT garrison | group=%1 | agents=%2 | expected=%3 | center=%4",
+		if (agentCount < expectedMembers)
+			Print(string.Format("[SPT_WorldGarrison] Grupo permaneceu parcial apos 5 segundos | grupo=%1 | agentes=%2/%3",
+				group, agentCount, expectedMembers), LogLevel.WARNING);
+
+		DebugLog(string.Format("Enviando grupo populado para guarnicao SPT | grupo=%1 | agentes=%2 | esperado=%3 | centro=%4",
 			group, agentCount, expectedMembers, buildingCenter));
-		SPT_AIGarrisonHelper.GarrisonGroup(group, buildingCenter, 25);
+		SPT_AIGarrisonHelper.GarrisonGroup(group, buildingCenter, m_fBuildingSearchRadius, m_sPatrolWaypointPrefab);
 		CompletePendingGroup(location, true);
 	}
 
@@ -628,7 +713,7 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		location.m_bSpawning = false;
 		location.m_iPendingGroups = 0;
 		location.m_iSuccessfulGroups = 0;
-		Print(string.Format("[SPT_WorldGarrison] Despawned %1 (%2 groups)", location.m_sName, groupCount));
+		Print(string.Format("[SPT_WorldGarrison] Despawn de %1 (%2 grupos)", location.m_sName, groupCount));
 	}
 
 	protected void CompletePendingGroup(SPT_GarrisonLocation location, bool successful)
@@ -650,12 +735,12 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 
 		if (location.m_bActive)
 		{
-			Print(string.Format("[SPT_WorldGarrison] Garrison ready in %1 | successfulGroups=%2 | trackedGroups=%3",
+			Print(string.Format("[SPT_WorldGarrison] Guarnicao pronta em %1 | gruposBemSucedidos=%2 | gruposRastreados=%3",
 				location.m_sName, location.m_iSuccessfulGroups, location.m_aGroupIds.Count()));
 		}
 		else
 		{
-			Print(string.Format("[SPT_WorldGarrison] Garrison failed in %1; location will retry while a player remains nearby.",
+			Print(string.Format("[SPT_WorldGarrison] Guarnicao falhou em %1; local tentara novamente enquanto houver jogador por perto.",
 				location.m_sName), LogLevel.ERROR);
 		}
 	}
@@ -668,6 +753,19 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		int index = location.m_aGroupIds.Find(groupId);
 		if (index >= 0)
 			location.m_aGroupIds.Remove(index);
+	}
+
+	protected void PruneMissingGroupIds(notnull SPT_GarrisonLocation location)
+	{
+		BaseWorld world = GetGame().GetWorld();
+		if (!world)
+			return;
+
+		for (int i = location.m_aGroupIds.Count() - 1; i >= 0; i--)
+		{
+			if (!world.FindEntityByID(location.m_aGroupIds[i]))
+				location.m_aGroupIds.Remove(i);
+		}
 	}
 
 	protected void DebugLog(string message)
@@ -718,54 +816,13 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		return m_aOpforGroupPrefabs.Count();
 	}
 
-	protected bool SelectRandomGroupResource(out ResourceName selectedPrefab, out Resource selectedResource)
+	protected array<ResourceName> GetSelectedGroupPrefabs()
 	{
-		selectedPrefab = ResourceName.Empty;
-		selectedResource = null;
-
-		array<ResourceName> prefabs;
 		if (m_eFaction == SPT_EGarrisonFaction.BLUFOR)
-			prefabs = m_aBluforGroupPrefabs;
-		else if (m_eFaction == SPT_EGarrisonFaction.INDEPENDENT)
-			prefabs = m_aIndependentGroupPrefabs;
-		else
-			prefabs = m_aOpforGroupPrefabs;
-
-		if (!prefabs || prefabs.IsEmpty())
-			return false;
-
-		int startIndex = Math.RandomInt(0, prefabs.Count());
-		for (int offset = 0; offset < prefabs.Count(); offset++)
-		{
-			int index = (startIndex + offset) % prefabs.Count();
-			ResourceName candidate = prefabs[index];
-			if (candidate.IsEmpty())
-			{
-				DebugLog(string.Format("Ignoring empty group prefab entry at index %1.", index));
-				continue;
-			}
-
-			if (candidate.Contains("_NotSpawned"))
-			{
-				Print(string.Format("[SPT_WorldGarrison] Unsupported _NotSpawned group prefab ignored at index %1: %2",
-					index, candidate), LogLevel.WARNING);
-				continue;
-			}
-
-			Resource candidateResource = Resource.Load(candidate);
-			if (!candidateResource)
-			{
-				Print(string.Format("[SPT_WorldGarrison] Could not load group prefab at index %1: %2",
-					index, candidate), LogLevel.WARNING);
-				continue;
-			}
-
-			selectedPrefab = candidate;
-			selectedResource = candidateResource;
-			return true;
-		}
-
-		return false;
+			return m_aBluforGroupPrefabs;
+		if (m_eFaction == SPT_EGarrisonFaction.INDEPENDENT)
+			return m_aIndependentGroupPrefabs;
+		return m_aOpforGroupPrefabs;
 	}
 
 	protected void ShufflePositions(notnull array<vector> positions)

@@ -1,12 +1,8 @@
-// version date 06-14-26
-// SPT AI Garrison
+// data da versao 06-14-26
+// SPT AI Garrison – gerenciador central de guarnicao de IA
 
-
-
-
-
-
-// one garrisoned soldier and the way we want him kept, pinned, facing his post
+// Representa um soldado guarnecido e o estado em que deve ser mantido:
+// entidade travada, grupo ao qual pertence, componente de utilidade e direcao de vigilancia
 class SPT_GarrisonHold
 {
 	IEntity m_Entity;
@@ -23,27 +19,55 @@ class SPT_GarrisonHold
 	}
 }
 
+// Rede de patrulha de um grupo entre os pontos internos das construcoes da area.
+class SPT_GarrisonInteriorPatrol
+{
+	SCR_AIGroup m_Group;
+	vector m_BuildingCenter;
+	ref array<ref SPT_GarrisonPost> m_Posts = {};
+	AIWaypoint m_Waypoint;
+	int m_iLastPost = -1;
+	int m_iWaitPolls;
+
+	void SPT_GarrisonInteriorPatrol(SCR_AIGroup group, vector buildingCenter)
+	{
+		m_Group = group;
+		m_BuildingCenter = buildingCenter;
+	}
+}
+
+// Gerenciador singleton de guarnicao: detecta postos, teleporta soldados, mantem vigilancia
 class SPT_GarrisonManager
 {
-	protected const int   RETRY_DELAY_MS   = 750;
-	protected const int   MAX_RETRIES      = 3;
-	protected const int   HOLD_POLL_MS     = 400;
-	protected const int   NAV_POLL_MS      = 200;
-	protected const int   NAV_MAX_POLLS    = 10;
-	protected const float NAV_TILE_STEP_M  = 8.0;
-	protected const float FACE_PROJECT_M   = 5.0;
-	protected const float FACE_DURATION    = 2.0;
+	protected const int   RETRY_DELAY_MS   = 750;   // intervalo entre tentativas de re-guarnicao (ms)
+	protected const int   MAX_RETRIES      = 3;     // numero maximo de tentativas antes de desistir
+	protected const int   HOLD_POLL_MS     = 400;   // intervalo do polling de manutencao de postura
+	protected const int   NAV_POLL_MS      = 200;   // intervalo de espera entre checagens de tiles do navmesh
+	protected const int   NAV_MAX_POLLS    = 10;    // maximo de checagens de navmesh antes de seguir em frente
+	protected const float NAV_TILE_STEP_M  = 8.0;   // passo de amostragem de tiles sob a construcao
+	protected const float FACE_PROJECT_M   = 5.0;   // distancia de projecao do alvo de olhar
+	protected const float FACE_DURATION    = 2.0;   // duracao da acao de olhar (s)
+	protected const int   PATROL_WAIT_MIN_POLLS = 0;
+	protected const int   PATROL_WAIT_MAX_POLLS = 7; // no maximo 2,8 segundos entre deslocamentos
+	protected const ResourceName DEFAULT_PATROL_WAYPOINT_PREFAB = "{FFF9518F73279473}PrefabsEditable/Auto/AI/Waypoints/E_AIWaypoint_Move.et";
 
 	protected static ref SPT_GarrisonManager s_Instance;
 
 	protected ref array<ref SPT_GarrisonHold> m_aHolds;
+	protected ref array<ref SPT_GarrisonInteriorPatrol> m_aInteriorPatrols;
+	protected ref Resource m_PatrolWaypointResource;
+	protected ResourceName m_sPatrolWaypointPrefab;
+	protected bool m_bPatrolWaypointLoadAttempted;
 	protected bool m_bHoldPollRunning;
 
 	void SPT_GarrisonManager()
 	{
 		m_aHolds = {};
+		m_aInteriorPatrols = {};
+		m_sPatrolWaypointPrefab = DEFAULT_PATROL_WAYPOINT_PREFAB;
 	}
 
+	// Acesso singleton – garante que so exista uma instancia do gerenciador
 	static SPT_GarrisonManager Get()
 	{
 		if (!s_Instance)
@@ -51,15 +75,31 @@ class SPT_GarrisonManager
 		return s_Instance;
 	}
 
-	// drop a group into the nearest building around center
-	void Garrison(SCR_AIGroup group, vector center, float radius)
+	// Entrada principal: guarnece um grupo na construcao mais proxima ao ponto central
+	void Garrison(
+		SCR_AIGroup group,
+		vector center,
+		float radius,
+		ResourceName patrolWaypointPrefab = ResourceName.Empty)
 	{
 		if (!group)
 			return;
+
+		if (!patrolWaypointPrefab.IsEmpty() && patrolWaypointPrefab != m_sPatrolWaypointPrefab)
+		{
+			m_sPatrolWaypointPrefab = patrolWaypointPrefab;
+			m_PatrolWaypointResource = null;
+			m_bPatrolWaypointLoadAttempted = false;
+		}
+
+		array<AIAgent> agents = {};
+		group.GetAgents(agents);
+		SetMaximumAgentSkill(agents);
 		EnsureNavmeshReady(group, center, radius, NAV_MAX_POLLS);
 	}
 
-	// building may have just spawned, kick a navmesh rebuild and wait for the tiles b4 sampling
+	// A construcao pode ter acabado de spawnar; solicita rebuild do navmesh e aguarda os tiles
+	// antes de amostrar as posicoes de posto
 	protected void EnsureNavmeshReady(SCR_AIGroup group, vector center, float radius, int pollsLeft)
 	{
 		if (!group)
@@ -85,6 +125,7 @@ class SPT_GarrisonManager
 			return;
 		}
 
+		// Dispara rebuild do navmesh apenas na primeira poll
 		if (pollsLeft >= NAV_MAX_POLLS)
 		{
 			AIWorld aiWorld = GetGame().GetAIWorld();
@@ -92,6 +133,7 @@ class SPT_GarrisonManager
 				aiWorld.RequestNavmeshRebuild(mins, maxs);
 		}
 
+		// Tiles prontos ou sem polls restantes: tenta guarnecer de qualquer forma
 		if (TilesReady(navmesh, mins, maxs) || pollsLeft <= 0)
 		{
 			TryGarrison(group, center, radius, MAX_RETRIES);
@@ -101,7 +143,7 @@ class SPT_GarrisonManager
 		GetGame().GetCallqueue().CallLater(EnsureNavmeshReady, NAV_POLL_MS, false, group, center, radius, pollsLeft - 1);
 	}
 
-	// poke every tile under the building's footprint; returns true once they're all in
+	// Percorre cada tile sob a area da construcao; retorna true somente quando todos estao carregados
 	protected bool TilesReady(NavmeshWorldComponent navmesh, vector mins, vector maxs)
 	{
 		bool allLoaded = true;
@@ -115,6 +157,7 @@ class SPT_GarrisonManager
 			{
 				float x = mins[0] + xi * NAV_TILE_STEP_M;
 				float z = mins[2] + zi * NAV_TILE_STEP_M;
+				// Amostra 3 alturas: piso, meio e teto da construcao
 				for (int yl = 0; yl < 3; yl++)
 				{
 					float y = mins[1];
@@ -135,7 +178,8 @@ class SPT_GarrisonManager
 		return allLoaded;
 	}
 
-	// find posts, teleport each member onto one and pin him; retries if the navmesh isn't ready
+	// Encontra postos via detector, teleporta cada membro do grupo para um posto e trava o movimento.
+	// Re-tenta se o navmesh ainda nao estiver pronto.
 	protected void TryGarrison(SCR_AIGroup group, vector center, float radius, int retriesLeft)
 	{
 		if (!group)
@@ -150,7 +194,7 @@ class SPT_GarrisonManager
 		if (!pathing)
 			return;
 
-		// don't hand out spotsalready filled from an earlier garrison
+		// Coleta posicoes ja ocupadas por guarnicoes anteriores para nao reutiliza-las
 		array<vector> excluded = {};
 		GatherOccupied(excluded);
 
@@ -158,6 +202,7 @@ class SPT_GarrisonManager
 		SPT_EGarrisonDetectResult result = SPT_GarrisonDetector.DetectPosts(
 			group.GetWorld(), center, pathing, agents.Count(), excluded, posts);
 
+		// Navmesh nao pronto ou sem posicoes ainda: agenda re-tentativa
 		if ((result == SPT_EGarrisonDetectResult.NAVMESH_NOT_READY || result == SPT_EGarrisonDetectResult.NO_POSITIONS) && retriesLeft > 0)
 		{
 			GetGame().GetCallqueue().CallLater(RetryGarrison, RETRY_DELAY_MS, false, group, center, radius, retriesLeft - 1);
@@ -177,14 +222,18 @@ class SPT_GarrisonManager
 			if (TeleportMemberToPost(agent, group, posts[assigned]))
 				assigned++;
 		}
+
+		if (assigned > 0)
+			StartAreaPatrol(group, center, radius, pathing, posts);
 	}
 
+	// Callback de re-tentativa de guarnicao
 	protected void RetryGarrison(SCR_AIGroup group, vector center, float radius, int retriesLeft)
 	{
 		TryGarrison(group, center, radius, retriesLeft);
 	}
 
-	// snap one soldier onto his post, aim him, pin him, and remember him for the hold poll
+	// Encaixa um soldado no posto inicial; a trava e removida somente quando uma rota interna valida existe.
 	protected bool TeleportMemberToPost(AIAgent agent, SCR_AIGroup group, SPT_GarrisonPost post)
 	{
 		if (!agent || !post)
@@ -214,6 +263,7 @@ class SPT_GarrisonManager
 		return true;
 	}
 
+	// Inicia o loop de manutencao (hold poll) se ainda nao estiver rodando
 	protected void EnsureHoldPoll()
 	{
 		if (m_bHoldPollRunning)
@@ -222,7 +272,8 @@ class SPT_GarrisonManager
 		m_bHoldPollRunning = true;
 	}
 
-	// runs while anyone's garrisoned: pop the prone back upright and keep them looking the right way
+	// Loop periodico executado enquanto houver soldados guarnecidos:
+	// levanta quem estiver deitado (prone) e mantem a direcao de vigilancia de cada um
 	protected void HoldPoll()
 	{
 		for (int i = m_aHolds.Count() - 1; i >= 0; i--)
@@ -238,17 +289,141 @@ class SPT_GarrisonManager
 			if (cc && cc.GetStance() == ECharacterStance.PRONE)
 				cc.SetStanceChange(ECharacterStanceChange.STANCECHANGE_TOERECTED);
 
-			FaceDirection(h);
+			if (!IsGroupInteriorPatrolling(h.m_Group))
+				FaceDirection(h);
 		}
 
-		if (m_aHolds.IsEmpty())
+		UpdateInteriorPatrols();
+
+		if (m_aHolds.IsEmpty() && m_aInteriorPatrols.IsEmpty())
 		{
 			GetGame().GetCallqueue().Remove(HoldPoll);
 			m_bHoldPollRunning = false;
 		}
 	}
 
-	// nudge his angle toward where his post should be watching
+	protected void StartAreaPatrol(
+		SCR_AIGroup group,
+		vector areaCenter,
+		float areaRadius,
+		AIPathfindingComponent pathing,
+		notnull array<ref SPT_GarrisonPost> initialPosts)
+	{
+		if (!group)
+			return;
+
+		array<ref SPT_GarrisonPost> areaPosts = {};
+		SPT_GarrisonDetector.DetectAreaPosts(group.GetWorld(), areaCenter, areaRadius, pathing, areaPosts);
+		if (areaPosts.Count() < 2)
+		{
+			foreach (SPT_GarrisonPost initialPost : initialPosts)
+				areaPosts.Insert(new SPT_GarrisonPost(initialPost.m_Pos, initialPost.m_Facing));
+		}
+
+		if (areaPosts.Count() < 2)
+			return;
+
+		SPT_GarrisonInteriorPatrol patrol = new SPT_GarrisonInteriorPatrol(group, areaCenter);
+		foreach (SPT_GarrisonPost post : areaPosts)
+			patrol.m_Posts.Insert(new SPT_GarrisonPost(post.m_Pos, post.m_Facing));
+
+		foreach (SPT_GarrisonHold hold : m_aHolds)
+		{
+			if (hold.m_Group == group && hold.m_Entity)
+				SPT_AIMovementLockHelper.ApplyLockState(hold.m_Entity, false);
+		}
+
+		patrol.m_iWaitPolls = Math.RandomInt(PATROL_WAIT_MIN_POLLS, PATROL_WAIT_MAX_POLLS + 1);
+		m_aInteriorPatrols.Insert(patrol);
+		Print(string.Format("[SPT_Garrison] Patrulha entre construcoes iniciada | grupo=%1 | pontos=%2 | centro=%3 | raio=%4",
+			group, patrol.m_Posts.Count(), patrol.m_BuildingCenter, areaRadius));
+	}
+
+	protected void UpdateInteriorPatrols()
+	{
+		for (int i = m_aInteriorPatrols.Count() - 1; i >= 0; i--)
+		{
+			SPT_GarrisonInteriorPatrol patrol = m_aInteriorPatrols[i];
+			if (!patrol || !patrol.m_Group)
+			{
+				m_aInteriorPatrols.Remove(i);
+				continue;
+			}
+
+			if (patrol.m_Group.GetCurrentWaypoint())
+				continue;
+
+			if (patrol.m_Waypoint)
+				SCR_EntityHelper.DeleteEntityAndChildren(patrol.m_Waypoint);
+			patrol.m_Waypoint = null;
+			if (patrol.m_iWaitPolls > 0)
+			{
+				patrol.m_iWaitPolls--;
+				continue;
+			}
+
+			CreateNextInteriorWaypoint(patrol);
+			patrol.m_iWaitPolls = Math.RandomInt(PATROL_WAIT_MIN_POLLS, PATROL_WAIT_MAX_POLLS + 1);
+		}
+	}
+
+	protected void CreateNextInteriorWaypoint(SPT_GarrisonInteriorPatrol patrol)
+	{
+		if (!patrol || patrol.m_Posts.Count() < 2)
+			return;
+
+		int nextPost = Math.RandomInt(0, patrol.m_Posts.Count());
+		if (nextPost == patrol.m_iLastPost)
+			nextPost = (nextPost + 1) % patrol.m_Posts.Count();
+
+		if (!m_bPatrolWaypointLoadAttempted)
+		{
+			m_bPatrolWaypointLoadAttempted = true;
+			m_PatrolWaypointResource = Resource.Load(m_sPatrolWaypointPrefab);
+			if (!m_PatrolWaypointResource)
+				Print(string.Format("[SPT_Garrison] Resource.Load retornou null para o waypoint interno: %1", m_sPatrolWaypointPrefab), LogLevel.ERROR);
+		}
+
+		if (!m_PatrolWaypointResource)
+			return;
+
+		EntitySpawnParams params();
+		params.TransformMode = ETransformMode.WORLD;
+		Math3D.MatrixIdentity4(params.Transform);
+		params.Transform[3] = patrol.m_Posts[nextPost].m_Pos;
+
+		IEntity waypointEntity = GetGame().SpawnEntityPrefab(m_PatrolWaypointResource, patrol.m_Group.GetWorld(), params);
+		AIWaypoint waypoint = AIWaypoint.Cast(waypointEntity);
+		if (!waypoint)
+		{
+			string waypointClass = "<null>";
+			if (waypointEntity)
+				waypointClass = waypointEntity.ClassName();
+			Print(string.Format("[SPT_Garrison] Spawn do waypoint interno falhou | recurso=%1 | entidade=%2 | classe=%3",
+				m_sPatrolWaypointPrefab, waypointEntity, waypointClass), LogLevel.ERROR);
+			if (waypointEntity)
+				SCR_EntityHelper.DeleteEntityAndChildren(waypointEntity);
+			return;
+		}
+
+		waypoint.SetCompletionRadius(1.0);
+		waypoint.SetCompletionYPrecision(1.5);
+		patrol.m_iLastPost = nextPost;
+		patrol.m_Waypoint = waypoint;
+		patrol.m_Group.AddWaypoint(waypoint);
+	}
+
+	protected bool IsGroupInteriorPatrolling(SCR_AIGroup group)
+	{
+		foreach (SPT_GarrisonInteriorPatrol patrol : m_aInteriorPatrols)
+		{
+			if (patrol.m_Group == group)
+				return true;
+		}
+		return false;
+	}
+
+	// Ajusta o angulo de olhar do soldado em direcao ao ponto de vigilancia do seu posto
 	protected void FaceDirection(SPT_GarrisonHold h)
 	{
 		if (!h.m_Utility || !h.m_Utility.m_LookAction)
@@ -260,7 +435,8 @@ class SPT_GarrisonManager
 		h.m_Utility.m_LookAction.LookAt(target, SCR_AILookAction.PRIO_DANGER_EVENT, FACE_DURATION);
 	}
 
-	// true if anyone in this group is garrisoned; the smoke gate asks so dug-in AI don't smoke themselves
+	// Retorna true se algum membro deste grupo estiver guarnecido.
+	// Usado pelo bloqueio de fumaca para impedir que IA entrincheirada lance fumaca em si mesma.
 	bool IsGroupGarrisoned(SCR_AIGroup group)
 	{
 		if (!group)
@@ -273,6 +449,7 @@ class SPT_GarrisonManager
 		return false;
 	}
 
+	// Coleta as posicoes de todos os soldados atualmente guarnecidos para evitar sobreposicao
 	protected void GatherOccupied(out array<vector> excluded)
 	{
 		foreach (SPT_GarrisonHold h : m_aHolds)
@@ -282,7 +459,7 @@ class SPT_GarrisonManager
 		}
 	}
 
-	// let them shoot on sight once they're in place
+	// Coloca o grupo em modo de combate "atirar a vontade" assim que estiverem posicionados
 	protected void SetGroupEngaging(SCR_AIGroup group)
 	{
 		SCR_AIGroupUtilityComponent gu = SCR_AIGroupUtilityComponent.Cast(group.FindComponent(SCR_AIGroupUtilityComponent));
@@ -290,7 +467,24 @@ class SPT_GarrisonManager
 			gu.SetCombatMode(EAIGroupCombatMode.FIRE_AT_WILL);
 	}
 
-	// any member's pathfinding will do, they all share the same navmesh
+	protected void SetMaximumAgentSkill(notnull array<AIAgent> agents)
+	{
+		foreach (AIAgent agent : agents)
+		{
+			if (!agent)
+				continue;
+
+			SCR_AICombatComponent combat = SCR_AICombatComponent.Cast(agent.FindComponent(SCR_AICombatComponent));
+			if (!combat)
+				continue;
+
+			combat.SetAISkill(EAISkill.EXPERT);
+			combat.SetPerceptionFactor(3.0);
+			combat.SetFireRateCoef(2.0, true);
+		}
+	}
+
+	// O pathfinding de qualquer membro do grupo serve, todos compartilham o mesmo navmesh
 	protected AIPathfindingComponent FindGroupPathing(notnull array<AIAgent> agents)
 	{
 		foreach (AIAgent agent : agents)
@@ -304,7 +498,7 @@ class SPT_GarrisonManager
 		return null;
 	}
 
-	// let a group go, unpin everyone held for it
+	// Libera um grupo: destrava o movimento de todos os membros guarnecidos e remove os registros
 	void Ungarrison(SCR_AIGroup group)
 	{
 		if (!group)
@@ -318,6 +512,16 @@ class SPT_GarrisonManager
 			if (h.m_Entity)
 				SPT_AIMovementLockHelper.ApplyLockState(h.m_Entity, false);
 			m_aHolds.Remove(i);
+		}
+
+		for (int p = m_aInteriorPatrols.Count() - 1; p >= 0; p--)
+		{
+			SPT_GarrisonInteriorPatrol patrol = m_aInteriorPatrols[p];
+			if (patrol.m_Group != group)
+				continue;
+			if (patrol.m_Waypoint)
+				SCR_EntityHelper.DeleteEntityAndChildren(patrol.m_Waypoint);
+			m_aInteriorPatrols.Remove(p);
 		}
 	}
 }

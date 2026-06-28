@@ -1,9 +1,11 @@
-// version date 06-14-26
-// SPT AI Garrison
+// data da versao 06-14-26
+// SPT AI Garrison – bloqueio de fumaca para grupos guarnecidos
 
-
+// Impede que grupos guarnecidos utilizem cobertura de fumaca, pois eles devem permanecer
+// estaticos no interior das construcoes. Grupos nao-guarnecidos seguem o comportamento padrao.
 modded class SCR_AIActivitySmokeCoverFeature
 {
+	// Verifica se o grupo esta guarnecido; se estiver, cancela a execucao da fumaca
 	override bool Execute(
 		notnull SCR_AIGroupUtilityComponent groupUtility,
 		vector targetPosition,

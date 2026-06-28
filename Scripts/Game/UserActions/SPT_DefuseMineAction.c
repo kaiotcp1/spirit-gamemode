@@ -6,12 +6,12 @@ class SPT_DefuseMineAction : ScriptedUserAction
 	{
 		SCR_HintManagerComponent hintMgr = SCR_HintManagerComponent.GetInstance();
 		if (hintMgr)
-			hintMgr.ShowCustom("[SPT] DefuseMineAction triggered on " + pOwnerEntity.ClassName());
+			hintMgr.ShowCustom("[SPT] Acao DesarmarMina ativada em " + pOwnerEntity.ClassName());
 
 		SPT_MineDefusalComponent defComp = SPT_MineDefusalComponent.Cast(pOwnerEntity.FindComponent(SPT_MineDefusalComponent));
 		if (!defComp)
 		{
-			Print("[SPT_DefuseMineAction] No SPT_MineDefusalComponent found on entity");
+			Print("[SPT_DefuseMineAction] SPT_MineDefusalComponent nao encontrado na entidade");
 			return;
 		}
 
@@ -34,7 +34,7 @@ class SPT_DefuseMineAction : ScriptedUserAction
 		RplComponent mineRpl = RplComponent.Cast(pOwnerEntity.FindComponent(RplComponent));
 		if (!mineRpl)
 		{
-			Print("[SPT_DefuseMineAction] No RplComponent on entity");
+			Print("[SPT_DefuseMineAction] RplComponent nao encontrado na entidade");
 			return;
 		}
 
@@ -46,7 +46,7 @@ class SPT_DefuseMineAction : ScriptedUserAction
 
 	override bool GetActionNameScript(out string outName)
 	{
-		outName = "Defuse Mine";
+		outName = "Desarmar Mina";
 		return true;
 	}
 

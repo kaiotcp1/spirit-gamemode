@@ -36,7 +36,7 @@ class SPT_CityDebugComponent : ScriptComponent
 
 		int cityCount = m_aCityNames.Count();
 
-		Print(string.Format("[SPT_CityDebug] Found %1 cities", cityCount));
+		Print(string.Format("[SPT_CityDebug] %1 cidades encontradas", cityCount));
 
 		SCR_HintManagerComponent hintManager = SCR_HintManagerComponent.GetInstance();
 		if (!hintManager)
@@ -44,11 +44,11 @@ class SPT_CityDebugComponent : ScriptComponent
 
 		if (cityCount == 0)
 		{
-			hintManager.ShowCustom("No cities found on this map");
+			hintManager.ShowCustom("Nenhuma cidade encontrada neste mapa");
 			return;
 		}
 
-		string hintText = "Cities found: " + cityCount + "\n\n";
+		string hintText = "Cidades encontradas: " + cityCount + "\n\n";
 		for (int i = 0; i < cityCount; i++)
 		{
 			hintText = hintText + m_aCityNames[i] + "\n";

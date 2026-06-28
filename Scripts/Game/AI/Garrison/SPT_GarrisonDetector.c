@@ -1,12 +1,7 @@
-// version date 06-14-26
-// SPT AI Garrison
+// data da versao 06-14-26
+// SPT AI Garrison – detector de postos de guarnicao em construcoes
 
-
-
-
-
-
-// a finished spot to put a soldier, where to stand and which way to look
+// Um posto finalizado para posicionar um soldado: onde ficar e para qual direcao olhar
 class SPT_GarrisonPost
 {
 	vector m_Pos;
@@ -19,7 +14,8 @@ class SPT_GarrisonPost
 	}
 }
 
-// something worth watching; exterior ones face outside, route ones are internal approaches
+// Uma abertura que vale a pena vigiar; aberturas externas (exterior) olham para fora,
+// aberturas de rota (route) sao caminhos internos como escadas
 class SPT_GarrisonOpening
 {
 	vector m_Pos;
@@ -36,53 +32,60 @@ class SPT_GarrisonOpening
 	}
 }
 
+// Detector de postos de guarnicao: analisa construcoes, encontra posicoes validas no interior,
+// distribui soldados e atribui direcoes de vigilancia com base em portas, janelas e rotas internas
 class SPT_GarrisonDetector
 {
-	protected const float BUILDING_SEARCH_RADIUS = 25.0;
-	protected const float GRID_SPACING_M         = 1.5;
-	protected const float Y_SLICE_SPACING_M      = 2.5;
-	protected const float FLOOR_OFFSET_M         = 1.0;
-	protected const vector NAVMESH_SEARCH_HALF   = "2.5 1.5 2.5";
-	protected const float  SNAP_DEDUP_SQ         = 0.25;
-	protected const float ROOF_PROBE_HEIGHT_M    = 50.0;
-	protected const float ROOF_PROBE_START_M     = 0.3;
-	protected const float DOOR_CLEARANCE_M       = 2.0;
-	protected const float OCCUPIED_CLEARANCE_M   = 2.0;
-	protected const float DOOR_FLOOR_TOL_M       = 2.0;
-	protected const float CONNECT_DIST_M         = 2.2;
-	protected const float CONNECT_Y_M            = 3.5;
-	protected const float FLOOR_WEIGHT           = 2.5;
-	protected const int   FPS_JITTER_K           = 3;
-	protected const float MIN_POST_SPACING_M     = 1.8;
+	// --- Constantes de busca e grade ---
+	protected const float BUILDING_SEARCH_RADIUS = 25.0;    // raio de busca por construcoes ao redor do centro
+	protected const float GRID_SPACING_M         = 1.5;     // espacamento da grade de amostragem horizontal
+	protected const float Y_SLICE_SPACING_M      = 2.5;     // espacamento vertical entre fatias de piso
+	protected const float FLOOR_OFFSET_M         = 1.0;     // deslocamento acima do piso para iniciar a amostra
+	protected const vector NAVMESH_SEARCH_HALF   = "2.5 1.5 2.5"; // meia-extensao de busca no navmesh
+	protected const float  SNAP_DEDUP_SQ         = 0.25;    // tolerancia quadratica para deduplicacao de snaps
+	protected const float ROOF_PROBE_HEIGHT_M    = 50.0;    // altura do raio de teste de teto
+	protected const float ROOF_PROBE_START_M     = 0.3;     // deslocamento inicial do raio de teto
+	protected const float DOOR_CLEARANCE_M       = 2.0;     // distancia minima de uma porta
+	protected const float OCCUPIED_CLEARANCE_M   = 2.0;     // distancia minima de posto ja ocupado
+	protected const float DOOR_FLOOR_TOL_M       = 2.0;     // tolerancia vertical porta-piso
+	protected const float CONNECT_DIST_M         = 2.2;     // distancia maxima de conexao entre pontos (union-find)
+	protected const float CONNECT_Y_M            = 3.5;     // tolerancia vertical para conexao entre pontos
+	protected const float FLOOR_WEIGHT           = 2.5;     // peso do eixo Y na distancia ponderada
+	protected const int   FPS_JITTER_K           = 3;       // fator de aleatoriedade na selecao farthest-point
+	protected const float MIN_POST_SPACING_M     = 1.8;     // espacamento minimo entre postos
 
-	protected const float LOS_H_M                = 1.5;
-	protected const float LOS_STOP_SHORT_M       = 0.7;
-	protected const float EXT_RAY_M              = 3.0;
-	protected const float MAX_WATCH_M            = 25.0;
-	protected const float W_EXT                  = 1.0;
-	protected const float W_APPROACH             = 0.6;
-	protected const float W_NEAR                 = 0.4;
-	protected const float W_ROUTE                = 0.65;
+	// --- Constantes de linha de visao e vigilancia ---
+	protected const float LOS_H_M                = 1.5;     // altura do olho para teste de linha de visao
+	protected const float LOS_STOP_SHORT_M       = 0.7;     // distancia de parada antes do alvo no trace LOS
+	protected const float EXT_RAY_M              = 3.0;     // comprimento do raio de teste de abertura externa
+	protected const float MAX_WATCH_M            = 25.0;    // distancia maxima de vigilancia
+	protected const float W_EXT                  = 1.0;     // peso para abertura externa
+	protected const float W_APPROACH             = 0.6;     // peso para alinhamento com direcao de aproximacao
+	protected const float W_NEAR                 = 0.4;     // peso para proximidade
+	protected const float W_ROUTE                = 0.65;    // peso para abertura de rota (escada)
 
-	protected const float ROUTE_HDIST_M          = 2.0;
-	protected const float ROUTE_HDIST_MIN_M      = 0.6;
-	protected const float ROUTE_STEP_MIN_M       = 0.4;
-	protected const float ROUTE_STEP_MAX_M       = 2.5;
-	protected const float ROUTE_DEDUP_M          = 4.5;
-	protected const float ROUTE_CLAIM_M          = 3.0;
+	// --- Constantes de deteccao de rotas (escadas) ---
+	protected const float ROUTE_HDIST_M          = 2.0;     // distancia horizontal maxima entre degraus
+	protected const float ROUTE_HDIST_MIN_M      = 0.6;     // distancia horizontal minima entre degraus
+	protected const float ROUTE_STEP_MIN_M       = 0.4;     // altura minima de um degrau
+	protected const float ROUTE_STEP_MAX_M       = 2.5;     // altura maxima de um degrau
+	protected const float ROUTE_DEDUP_M          = 4.5;     // raio de deduplicacao de rotas
+	protected const float ROUTE_CLAIM_M          = 3.0;     // raio de reivindicacao de rota por um soldado
 
-	protected const float UNDERGROUND_SLOP_M     = 0.5;
-	protected const float FLOOR_PROBE_M          = 0.6;
-	protected const float MAX_FLOOR_GAP_M        = 0.35;
-	protected const float MIN_HEADROOM_M         = 1.8;
-	protected const float CLEAR_RADIUS_M         = 0.4;
-	protected const float CHEST_H_M              = 1.2;
-	protected const float ENCLOSE_RAY_M          = 16.0;
-	protected const float ENCLOSE_H_M            = 1.5;
-	protected const int   ENCLOSE_MIN_HITS       = 4;
-	// slack on the authored interior box so a floor sample right at the box edge still counts as inside
+	// --- Constantes de validacao de piso e espaco ---
+	protected const float UNDERGROUND_SLOP_M     = 0.5;     // tolerancia para considerar ponto como subterraneo
+	protected const float FLOOR_PROBE_M          = 0.6;     // profundidade do raio de sondagem de piso
+	protected const float MAX_FLOOR_GAP_M        = 0.35;    // distancia maxima entre ponto e piso real
+	protected const float MIN_HEADROOM_M         = 1.8;     // altura minima livre acima do ponto
+	protected const float CLEAR_RADIUS_M         = 0.4;     // raio de espaco livre ao redor do soldado
+	protected const float CHEST_H_M              = 1.2;     // altura do peito para verificacao de obstrucao
+	protected const float ENCLOSE_RAY_M          = 16.0;    // comprimento do raio de verificacao de paredes ao redor
+	protected const float ENCLOSE_H_M            = 1.5;     // altura dos raios de fechamento (paredes)
+	protected const int   ENCLOSE_MIN_HITS       = 4;       // numero minimo de paredes ao redor para considerar fechado
+	// Folga nas caixas internas autorais para que amostras na borda ainda contem como dentro
 	protected const float INTERIOR_MARGIN_M      = 0.3;
 
+	// Quando true, usa as caixas delimitadoras internas (OBB) como porteiro adicional de validacao
 	protected const bool  USE_INTERIOR_OBB_GATE  = false;
 
 	protected static ref array<IEntity> s_QueryAccumulator;
@@ -91,8 +94,8 @@ class SPT_GarrisonDetector
 	static ref array<vector> s_DebugContained;
 	static string s_DebugSummary;
 
-	// Exposes the detector's building discovery to dynamic world garrisons.
-	// Results are structural-shell centers with duplicates removed.
+	// Expõe a descoberta de construcoes do detector para guarnicoes dinamicas no mundo.
+	// Os resultados sao centros de casca estrutural com duplicatas removidas.
 	static void CollectBuildingCenters(
 		BaseWorld world,
 		vector center,
@@ -133,7 +136,8 @@ class SPT_GarrisonDetector
 		}
 	}
 
-	// the whole pipeline: picks & distribs
+	// Pipeline completo: coleta construcoes, amostra navmesh, valida posicoes, distribui postos
+	// e atribui direcoes de vigilancia para cada soldado
 	static SPT_EGarrisonDetectResult DetectPosts(
 		BaseWorld world,
 		vector center,
@@ -164,7 +168,7 @@ class SPT_GarrisonDetector
 		if (snapped.IsEmpty())
 			return SPT_EGarrisonDetectResult.NAVMESH_NOT_READY;
 
-		// keep only the spots that are actually inside, on a floor, and have room to stand
+		// mantem apenas pontos dentro da construcao, sob teto, com piso e espaco para ficar em pe
 		array<vector> valid = {};
 		foreach (vector p : snapped)
 		{
@@ -187,15 +191,15 @@ class SPT_GarrisonDetector
 		CollectBuildingDoors(target, doors);
 		vector buildingCenter = (mins + maxs) * 0.5;
 
-		// drop anything on a floor with no door near its height, probably an unreachable level
+		// descarta pontos em pisos sem porta proxima na mesma altura (provavelmente inalcancaveis)
 		array<vector> reachable = {};
 		FilterToDoorLevels(valid, doors, reachable);
 
-		// keep only the cluster connected to the click, so a back shed across the yard isn't garrisoned
+		// mantem apenas o cluster conectado ao clique, para nao guarnecer um galpao isolado no fundo
 		array<vector> contained = {};
 		KeepCenterComponent(world, target, reachable, center, contained);
 
-		// don't park anyone right in a doorway, and don't reuse already-occupied spots
+		// evita posicionar soldados bem em frente a portas e nao reutiliza postos ja ocupados
 		array<vector> spaced = {};
 		FilterByClearance(contained, doors, DOOR_CLEARANCE_M, spaced);
 
@@ -204,13 +208,13 @@ class SPT_GarrisonDetector
 		if (available.IsEmpty())
 			return SPT_EGarrisonDetectResult.NO_POSITIONS;
 
-		// spread the chosen posts as far apart as we can so they cover the place, not huddle
+		// espalha os postos o maximo possivel para cobrir o local, em vez de agrupar todos no mesmo canto
 		array<vector> positions = {};
 		FarthestPointSample(available, buildingCenter, desiredCount, positions);
 		if (positions.IsEmpty())
 			return SPT_EGarrisonDetectResult.NO_POSITIONS;
 
-		// work out what each man should watch, doors, windows, stairs, and the likely approach
+		// determina o que cada soldado deve vigiar: portas, janelas, escadas e a direcao provavel de aproximacao
 		array<ref SPT_GarrisonOpening> openings = {};
 		CollectOpenings(world, target, buildingCenter, openings);
 		DetectRoutes(contained, openings);
@@ -228,7 +232,43 @@ class SPT_GarrisonDetector
 		return SPT_EGarrisonDetectResult.OK;
 	}
 
-	// just the building's bounding box, used to know which navmesh tiles to wait on
+	// Coleta uma rede de postos em todas as construcoes da area. Cada ponto continua
+	// validado pelo pipeline interno e orientado para portas, janelas e escadas.
+	static void DetectAreaPosts(
+		BaseWorld world,
+		vector center,
+		float radius,
+		AIPathfindingComponent pathing,
+		out array<ref SPT_GarrisonPost> outPosts)
+	{
+		outPosts = {};
+		if (!world || !pathing || radius <= 0)
+			return;
+
+		array<vector> buildingCenters = {};
+		CollectBuildingCenters(world, center, radius, buildingCenters);
+		array<vector> noExclusions = {};
+
+		foreach (vector buildingCenter : buildingCenters)
+		{
+			array<ref SPT_GarrisonPost> buildingPosts = {};
+			SPT_EGarrisonDetectResult result = DetectPosts(
+				world,
+				buildingCenter,
+				pathing,
+				12,
+				noExclusions,
+				buildingPosts
+			);
+			if (result != SPT_EGarrisonDetectResult.OK)
+				continue;
+
+			foreach (SPT_GarrisonPost post : buildingPosts)
+				outPosts.Insert(new SPT_GarrisonPost(post.m_Pos, post.m_Facing));
+		}
+	}
+
+	// Apenas a bounding box da construcao, usada para saber quais tiles do navmesh esperar
 	static bool ResolveBuildingBounds(BaseWorld world, vector center, out vector mins, out vector maxs)
 	{
 		mins = vector.Zero;
@@ -249,7 +289,7 @@ class SPT_GarrisonDetector
 		return true;
 	}
 
-	// every destructible structure within reach of the click
+	// Toda estrutura destrutivel dentro do alcance do clique
 	protected static void FindBuildings(BaseWorld world, vector origin, out array<IEntity> result)
 	{
 		s_QueryAccumulator = result;
@@ -286,7 +326,7 @@ class SPT_GarrisonDetector
 		return nearest;
 	}
 
-	// we may have grabbed a chair or a prop, climb to the actual walls-and-roof piece
+	// Podemos ter capturado uma cadeira ou um prop; sobe ate a peca real de paredes e teto
 	protected static IEntity ResolveStructuralShell(IEntity picked)
 	{
 		if (!picked)
@@ -306,7 +346,7 @@ class SPT_GarrisonDetector
 		return root;
 	}
 
-	// crude name check, furniture isn't the shell we want to garrison into
+	// Verificacao simples por nome: moveis nao sao a casca estrutural que queremos guarnecer
 	protected static bool IsFurniturePiece(IEntity entity)
 	{
 		if (!entity)
@@ -341,7 +381,8 @@ class SPT_GarrisonDetector
 		return null;
 	}
 
-	// grid the building at a few floor heights and snap each point to navmesh, so only standable spots
+	// Cria uma grade sobre a construcao em algumas alturas de piso e encaixa cada ponto no navmesh,
+	// resultando apenas em locais onde e possivel ficar em pe
 	protected static void SampleNavmesh(AIPathfindingComponent pathing, vector mins, vector maxs, out array<vector> snapped)
 	{
 		snapped = {};
@@ -391,7 +432,7 @@ class SPT_GarrisonDetector
 		}
 	}
 
-	// fire a ray straight up, if it hits something there's a roof over this spot
+	// Dispara um raio diretamente para cima; se atingir algo, ha um teto sobre este ponto
 	protected static bool IsUnderRoof(BaseWorld world, IEntity building, vector point)
 	{
 		TraceParam p = new TraceParam();
@@ -404,7 +445,7 @@ class SPT_GarrisonDetector
 		return ratio < 0.99;
 	}
 
-	// reject spots under terrain, with no floor beneath, or no headroom; keeps us out of cellars
+	// Rejeita pontos sob o terreno, sem piso abaixo ou sem altura livre; mantem-nos fora de poroes
 	protected static bool IsUnderground(BaseWorld world, vector point)
 	{
 		float terrainY = world.GetSurfaceY(point[0], point[2]);
@@ -428,7 +469,8 @@ class SPT_GarrisonDetector
 		return false;
 	}
 
-	// feel around chest height in 8 directions, make sure he isn't jammed into a wall corner
+	// Verifica espaco livre na altura do peito em 8 direcoes, garantindo que o soldado nao esta
+	// preso em um canto de parede
 	protected static bool HasClearStandingSpace(BaseWorld world, IEntity shell, vector point)
 	{
 		vector chest = point + Vector(0, CHEST_H_M, 0);
@@ -451,7 +493,8 @@ class SPT_GarrisonDetector
 		return true;
 	}
 
-	// enclosed by THIS building? only this building's own walls count, not the neighbours' (kills exterior-wall posts in dense villages)
+	// Fechado por ESTA construcao? Somente as paredes desta construcao contam, nao as dos vizinhos
+	// (evita postos em paredes externas em vilarejos densos)
 	protected static bool HasWallsAround(BaseWorld world, IEntity building, vector point)
 	{
 		IEntity buildingRoot = building.GetRootParent();
@@ -475,14 +518,14 @@ class SPT_GarrisonDetector
 			if (frac >= 1.0)
 				continue;
 
-			// only this building's own walls count, neighbour walls don't enclose us
+			// apenas as paredes desta construcao contam, paredes vizinhas nao nos fecham
 			if (IsPartOfBuilding(p.TraceEnt, buildingRoot))
 				hits++;
 		}
 		return hits >= ENCLOSE_MIN_HITS;
 	}
 
-	// true if the hit entity belongs to the target building (shares its root)
+	// True se a entidade atingida pertence a construcao alvo (compartilha a mesma raiz)
 	protected static bool IsPartOfBuilding(IEntity hit, IEntity buildingRoot)
 	{
 		if (!hit || !buildingRoot)
@@ -493,7 +536,8 @@ class SPT_GarrisonDetector
 		return hitRoot == buildingRoot;
 	}
 
-	// test the point against the building's authored interior boxes (local frame); no boxes returns TRUE so the ray heuristics stay in charge
+	// Testa o ponto contra as caixas internas autorais da construcao (frame local).
+	// Se nao houver caixas, retorna TRUE para que as heuristicas de raio continuem no comando.
 	protected static bool IsInsideInteriorVolume(IEntity shell, vector point)
 	{
 		SCR_DestructibleBuildingComponent comp = SCR_DestructibleBuildingComponent.Cast(
@@ -528,7 +572,7 @@ class SPT_GarrisonDetector
 		return false;
 	}
 
-	// one ray; gives back how far it got and where it stopped
+	// Um unico raio; retorna a fracao percorrida e o ponto de parada
 	protected static float TraceSeg(BaseWorld world, vector from, vector to, out vector outHit)
 	{
 		TraceParam p = new TraceParam();
@@ -541,7 +585,7 @@ class SPT_GarrisonDetector
 		return frac;
 	}
 
-	// every door position in the building, used as floor-level anchors and to avoid blocking them
+	// Coleta a posicao de todas as portas na construcao, usadas como ancoras de piso e para evitar bloquea-las
 	protected static void CollectBuildingDoors(IEntity target, out array<vector> outDoors)
 	{
 		outDoors = {};
@@ -568,7 +612,8 @@ class SPT_GarrisonDetector
 		}
 	}
 
-	// drop points too close to a marker (door or taken spot); if that empties all, keep them all instead
+	// Descarta pontos muito proximos de um marcador (porta ou posto ocupado);
+	// se todos forem descartados, mantem todos em vez de ficar sem nenhum
 	protected static void FilterByClearance(notnull array<vector> points, notnull array<vector> markers, float clearance, out array<vector> outKept)
 	{
 		outKept = {};
@@ -598,7 +643,8 @@ class SPT_GarrisonDetector
 			outKept.Copy(points);
 	}
 
-	// only trust floors that have a door near their height, keeps us off unreachable mezzanines
+	// So confia em pisos que tenham uma porta proxima na mesma altura,
+	// evitando mezaninos inalcancaveis
 	protected static void FilterToDoorLevels(notnull array<vector> points, notnull array<vector> doors, out array<vector> outKept)
 	{
 		outKept = {};
@@ -627,7 +673,8 @@ class SPT_GarrisonDetector
 			outKept.Copy(points);
 	}
 
-	// union-find: blob nearby spots, keep only the blob nearest the click, so we don't spill next door
+	// Union-find: agrupa pontos proximos entre si e mantem apenas o grupo mais proximo do clique,
+	// para que a guarnicao nao transborde para o predio vizinho
 	protected static void KeepCenterComponent(BaseWorld world, IEntity target, notnull array<vector> points, vector center, out array<vector> outKept)
 	{
 		outKept = {};
@@ -684,7 +731,8 @@ class SPT_GarrisonDetector
 			outKept.Copy(points);
 	}
 
-	// greedily pick spots farthest from the ones already chosen, so the squad fans out, not clusters
+	// Seleciona pontos o mais distantes possivel dos ja escolhidos, para que o esquadrao se espalhe
+	// em vez de se aglomerar. Usa algoritmo farthest-point sampling com fator de aleatoriedade.
 	protected static void FarthestPointSample(notnull array<vector> candidates, vector center, int want, out array<vector> outPicked)
 	{
 		outPicked = {};
@@ -736,7 +784,8 @@ class SPT_GarrisonDetector
 		}
 	}
 
-	// pick one of the k farthest at random, so identical layouts don't always fill the exact same spots
+	// Escolhe aleatoriamente um dos K pontos mais distantes, para que layouts identicos
+	// nao preencham sempre os mesmos postos exatos
 	protected static int TopKFarthest(notnull array<float> minDist, notnull array<bool> taken, int k, float minSpace2)
 	{
 		array<int> top = {};
@@ -767,7 +816,8 @@ class SPT_GarrisonDetector
 		return top[Math.RandomInt(0, top.Count())];
 	}
 
-	// distance that counts vertical gaps more, so different floors read as genuinely far apart
+	// Distancia que pondera mais a separacao vertical, para que pisos diferentes sejam
+	// tratados como genuinamente distantes entre si
 	protected static float WeightedDistSq(vector a, vector b)
 	{
 		float dx = a[0] - b[0];
@@ -776,7 +826,8 @@ class SPT_GarrisonDetector
 		return dx * dx + dy * dy + dz * dz;
 	}
 
-	// can this post see that opening? stops short of the target so the aperture itself doesn't block
+	// Este posto tem linha de visao para aquela abertura? O raio para um pouco antes do alvo
+	// para que a propria abertura nao bloqueie o teste
 	protected static bool LosClear(BaseWorld world, vector a, vector b)
 	{
 		vector start = a + Vector(0, LOS_H_M, 0);
@@ -797,7 +848,7 @@ class SPT_GarrisonDetector
 		return world.TraceMove(p, null) >= 0.99;
 	}
 
-	// union-find with path compression
+	// Union-find com compressao de caminho
 	protected static int Find(notnull array<int> parent, int i)
 	{
 		while (parent[i] != i)
@@ -816,7 +867,9 @@ class SPT_GarrisonDetector
 			parent[ra] = rb;
 	}
 
-	// hand out facings: stairs claimed by their nearest man, then best-scoring visible openings, leftovers face out
+	// Atribui direcoes de vigilancia: primeiro escadas sao reivindicadas pelo soldado mais proximo,
+	// depois as melhores aberturas visiveis sao distribuida uma a uma, e os que sobrarem olham
+	// para a melhor abertura que conseguem ver
 	protected static void AssignFacings(BaseWorld world, notnull array<vector> posts, notnull array<ref SPT_GarrisonOpening> openings, vector center, vector approach, out array<vector> outFacings)
 	{
 		int np = posts.Count();
@@ -853,7 +906,7 @@ class SPT_GarrisonDetector
 		for (int o = 0; o < no; o++)
 			covered[o] = false;
 
-		// stairwells first, whoever's nearest watches the way up
+		// Escadas primeiro: o soldado mais proximo vigia o caminho de subida
 		float claim2 = ROUTE_CLAIM_M * ROUTE_CLAIM_M;
 		for (int o = 0; o < no; o++)
 		{
@@ -884,7 +937,7 @@ class SPT_GarrisonDetector
 			covered[o] = true;
 		}
 
-		// then greedily pair the best remaining post-to-opening matches until we run out
+		// Depois, emparelha guloso as melhores combinacoes restantes de posto-abertura ate acabar
 		while (true)
 		{
 			int bestPost = -1;
@@ -915,7 +968,7 @@ class SPT_GarrisonDetector
 			covered[bestOpening] = true;
 		}
 
-		// anyone still without a job watches the best opening he can see, even if it's shared
+		// Quem ainda estiver sem funcao vigia a melhor abertura que consegue ver, mesmo que compartilhada
 		for (int i = 0; i < np; i++)
 		{
 			if (postUsed[i])
@@ -936,7 +989,7 @@ class SPT_GarrisonDetector
 		}
 	}
 
-	// score a post watching an opening, favours exterior, approach-facing, and close ones
+	// Pontua um posto vigiando uma abertura: favorece aberturas externas, alinhadas com a aproximacao e proximas
 	protected static float ScoreEdge(vector post, SPT_GarrisonOpening opening, vector approach)
 	{
 		float ext = 0.2;
@@ -961,6 +1014,7 @@ class SPT_GarrisonDetector
 		return W_EXT * ext + W_APPROACH * align + W_NEAR * near;
 	}
 
+	// Direcao horizontal do posto ate o alvo, normalizada
 	protected static vector FaceDir(vector pos, vector target)
 	{
 		vector dir = target - pos;
@@ -971,7 +1025,7 @@ class SPT_GarrisonDetector
 		return dir;
 	}
 
-	// face away from the building's middle, the fallback when there's nothing better to watch
+	// Direcao oposta ao centro da construcao: fallback quando nao ha nada melhor para vigiar
 	protected static vector OutwardDir(vector pos, vector center)
 	{
 		vector outward = pos - center;
@@ -982,7 +1036,7 @@ class SPT_GarrisonDetector
 		return outward;
 	}
 
-	// gather doors + windows, flip each normal outward, and flag the ones that open to outside
+	// Coleta portas e janelas, inverte cada normal para fora e sinaliza as que dao para o exterior
 	protected static void CollectOpenings(BaseWorld world, IEntity target, vector center, out array<ref SPT_GarrisonOpening> outOpenings)
 	{
 		outOpenings = {};
@@ -991,6 +1045,7 @@ class SPT_GarrisonDetector
 			root = target;
 		WalkForOpenings(root, outOpenings, 0);
 
+		// Para cada abertura, orienta a normal para fora do centro da construcao
 		foreach (SPT_GarrisonOpening op : outOpenings)
 		{
 			vector toOut = op.m_Pos - center;
@@ -1009,7 +1064,8 @@ class SPT_GarrisonDetector
 		}
 	}
 
-	// recurse the building's parts, pulling out door origins and window hitzones as openings
+	// Percorre recursivamente as pecas da construcao, extraindo origens de portas e zonas de acerto
+	// de janelas como aberturas a serem vigiadas
 	protected static void WalkForOpenings(IEntity entity, notnull array<ref SPT_GarrisonOpening> outOpenings, int depth)
 	{
 		if (!entity || depth > 10)
@@ -1052,6 +1108,7 @@ class SPT_GarrisonDetector
 		}
 	}
 
+	// Verifica se uma abertura na mesma posicao ja foi coletada (evita duplicatas de janela)
 	protected static bool AlreadyHaveOpening(notnull array<ref SPT_GarrisonOpening> have, vector p)
 	{
 		foreach (SPT_GarrisonOpening h : have)
@@ -1062,7 +1119,7 @@ class SPT_GarrisonDetector
 		return false;
 	}
 
-	// shoot a short ray out through the opening, if nothing's there it opens to the outside
+	// Dispara um raio curto atraves da abertura; se nao atingir nada, ela se abre para o exterior
 	protected static bool IsExteriorFacing(BaseWorld world, SPT_GarrisonOpening op)
 	{
 		if (op.m_Normal.Length() < 0.001)
@@ -1073,7 +1130,7 @@ class SPT_GarrisonDetector
 		return frac >= 0.99;
 	}
 
-	// average of the exterior openings, a rough guess at which way trouble comes from
+	// Media das normais das aberturas externas: estimativa grosseira da direcao de onde vem o perigo
 	protected static vector ApproachDir(notnull array<ref SPT_GarrisonOpening> openings)
 	{
 		vector sum = vector.Zero;
@@ -1089,7 +1146,7 @@ class SPT_GarrisonDetector
 		return sum;
 	}
 
-	// spot stairwells: a standable point with another a step below and to the side, so someone watches them
+	// Detecta escadas: um ponto com outro degrau abaixo e ao lado, para que alguem vigie a subida
 	protected static void DetectRoutes(notnull array<vector> points, notnull array<ref SPT_GarrisonOpening> openings)
 	{
 		int n = points.Count();
@@ -1128,6 +1185,7 @@ class SPT_GarrisonDetector
 		}
 	}
 
+	// Verifica se ja existe uma rota proxima a este ponto (evita duplicatas de escada)
 	protected static bool NearExistingRoute(notnull array<ref SPT_GarrisonOpening> openings, vector p)
 	{
 		float r2 = ROUTE_DEDUP_M * ROUTE_DEDUP_M;
@@ -1139,6 +1197,7 @@ class SPT_GarrisonDetector
 		return false;
 	}
 
+	// Distancia horizontal quadratica (ignora o eixo Y)
 	protected static float HorizontalDistSq(vector a, vector b)
 	{
 		float dx = a[0] - b[0];
@@ -1146,6 +1205,7 @@ class SPT_GarrisonDetector
 		return dx * dx + dz * dz;
 	}
 
+	// Retorna o intervalo de alturas [min..max] dos pontos, para depuracao
 	protected static string YRange(notnull array<vector> pts)
 	{
 		if (pts.IsEmpty())

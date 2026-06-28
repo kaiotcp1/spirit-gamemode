@@ -1,18 +1,14 @@
-// version date 06-13-26
-// SPT AI Garrison
+// data da versao 06-13-26
+// SPT AI Garrison – auxiliar de trava de movimento para soldados guarnecidos
 
-
-
-
-
-
-// pins garrisoned soldiers in place, fire and perception stay live, they just wont move
+// Mantem soldados guarnecidos fixos no posto designado. O disparo e a percepcao
+// permanecem ativos; apenas a locomocao fica desabilitada enquanto estiverem guarnecidos.
 class SPT_AIMovementLockHelper
 {
-	// every1 that is static so they can be ungarrison'd
+	// Conjunto estatico com todos os personagens atualmente travados, usado para liberacao em lote
 	protected static ref set<IEntity> s_LockedCharacters;
 
-	// freeze or release singles
+	// Aplica ou remove a trava de movimento de um unico personagem
 	static void ApplyLockState(IEntity character, bool locked)
 	{
 		if (!character)
@@ -33,6 +29,7 @@ class SPT_AIMovementLockHelper
 			s_LockedCharacters.RemoveItem(character);
 	}
 
+	// Verifica se um personagem esta atualmente travado
 	static bool IsLocked(IEntity character)
 	{
 		if (!character || !s_LockedCharacters)
@@ -40,7 +37,7 @@ class SPT_AIMovementLockHelper
 		return s_LockedCharacters.Contains(character);
 	}
 
-	// lift everyone we're holding
+	// Libera todos os personagens travados de uma vez (limpeza geral)
 	static void UnlockAll()
 	{
 		if (!s_LockedCharacters)
