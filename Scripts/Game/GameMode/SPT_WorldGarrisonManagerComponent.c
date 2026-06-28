@@ -5,17 +5,17 @@ enum SPT_EGarrisonFaction
 	INDEPENDENT
 }
 
-//! Tracks metadata for a spawned garrison group so that stream-out can
-//! save the correct prefab and position back into the cache.
+//! Rastreia metadados de um grupo de guarnicao spawnado para que o stream-out
+//! possa salvar o prefab e a posicao corretos de volta no cache.
 class SPT_GroupSpawnRecord : Managed
 {
-	//! Prefab that was used to spawn this group (from m_aCQBGroupPrefabs or m_aPatrolGroupPrefabs).
+	//! Prefab que foi usado para spawnar este grupo (de m_aCQBGroupPrefabs ou m_aPatrolGroupPrefabs).
 	ResourceName m_rGroupPrefab;
 
-	//! Fallback position used only when no surviving member position is available.
+	//! Posicao de fallback usada somente quando nenhuma posicao de membro sobrevivente esta disponivel.
 	vector m_vFallbackPosition;
 
-	//! True if the group was spawned as a CQB interior group, false for a patrol group.
+	//! Verdadeiro se o grupo foi spawnado como grupo interior CQB, falso para grupo de patrulha.
 	bool m_bIsCQB;
 
 }
@@ -28,8 +28,8 @@ class SPT_GarrisonLocation : Managed
 	bool m_bActive;
 	bool m_bSpawning;
 	bool m_bUnavailable;
-	//! Distinguishes "never streamed out" from an intentionally empty cache
-	//! after every group at this location was eliminated.
+	//! Diferencia "nunca sofreu stream-out" de um cache intencionalmente vazio
+	//! apos todos os grupos desta localizacao terem sido eliminados.
 	bool m_bHasCachedSnapshot;
 	bool m_bCleared;
 	int m_iPendingGroups;
@@ -40,13 +40,13 @@ class SPT_GarrisonLocation : Managed
 	int m_iTargetManpower;
 	ref array<EntityID> m_aGroupIds = new array<EntityID>();
 
-	//! Cached group state saved during stream-out so that only survivors
-	//! are respawned when the player returns. An empty array together with
-	//! m_bHasCachedSnapshot means that the location was fully eliminated.
+	//! Estado dos grupos salvos durante o stream-out para que apenas sobreviventes
+	//! sejam respawnados quando o jogador retorna. Um array vazio junto com
+	//! m_bHasCachedSnapshot significa que a localizacao foi completamente eliminada.
 	ref array<ref SPT_StreamableGarrisonGroup> m_aCachedGroups = new array<ref SPT_StreamableGarrisonGroup>();
 
-	//! Parallel array to m_aGroupIds that tracks spawn metadata for each group.
-	//! Used by stream-out (caching) to know which prefab and position to save.
+	//! Array paralelo ao m_aGroupIds que rastreia metadados de spawn de cada grupo.
+	//! Usado pelo stream-out (caching) para saber qual prefab e posicao salvar.
 	ref array<ref SPT_GroupSpawnRecord> m_aGroupRecords = new array<ref SPT_GroupSpawnRecord>();
 
 	void SPT_GarrisonLocation(vector center, string name, int descriptorType)
@@ -56,7 +56,7 @@ class SPT_GarrisonLocation : Managed
 		m_iDescriptorType = descriptorType;
 	}
 
-	//! Total manpower across cached (not yet respawned) groups.
+	//! Total de manpower entre os grupos cacheados (ainda nao respawnados).
 	int GetCachedManpower()
 	{
 		int total;
@@ -67,8 +67,8 @@ class SPT_GarrisonLocation : Managed
 		return total;
 	}
 
-	//! Initialize the finite reinforcement reserve for this location.
-	//! A zero budget means unlimited deployments.
+	//! Inicializa a reserva finita de reforcos para esta localizacao.
+	//! Budget zero significa tropas ilimitadas.
 	void InitBudget(int maxBudget)
 	{
 		m_iMaxBudget = maxBudget;
@@ -105,7 +105,7 @@ class SPT_GarrisonLocation : Managed
 		m_iBudgetRemaining = Math.Max(0, m_iBudgetRemaining - deployedUnits);
 	}
 
-	//! Total force represented by live agents, group spawn queues and cache.
+	//! Forca total representada por agentes vivos, filas de spawn dos grupos e cache.
 	int GetTotalManpower()
 	{
 		int total = GetCachedManpower();
@@ -526,8 +526,8 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 
 			if (!location.m_bActive && nearestPlayerSq <= spawnDistanceSq)
 			{
-				// An empty snapshot is meaningful: this location was completely
-				// eliminated and must not receive a fresh garrison.
+				// Um snapshot vazio tem significado: esta localizacao foi
+				// completamente eliminada e nao deve receber uma guarnicao nova.
 				if (m_bEnableCaching && location.m_bHasCachedSnapshot && location.m_aCachedGroups.IsEmpty() && !location.CanDeployUnits())
 				{
 					location.RefreshClearedState();
@@ -607,9 +607,9 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		PruneMissingGroupIds(location);
 
 		// -----------------------------------------------------------------
-		// CACHE RESTORE: If caching is on and this location has survivors
-		// saved from a previous stream-out, respawn only those survivors
-		// instead of spawning fresh groups from scratch.
+		// RESTAURACAO DO CACHE: Se o caching estiver ativo e esta
+		// localizacao tiver sobreviventes salvos de um stream-out anterior,
+		// respawna apenas esses sobreviventes em vez de gerar grupos novos.
 		// -----------------------------------------------------------------
 		if (m_bEnableCaching && location.m_bHasCachedSnapshot)
 		{
@@ -783,7 +783,7 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			location.ConsumeBudget(spawnedUnits);
 			location.m_aGroupIds.Insert(group.GetID());
 
-			// Track group metadata for future stream-out caching
+			// Rastreia metadados do grupo para futuro stream-out caching
 			SPT_GroupSpawnRecord record = new SPT_GroupSpawnRecord();
 			record.m_rGroupPrefab = groupPrefab;
 			record.m_vFallbackPosition = spawnCenter;
@@ -820,9 +820,9 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			location.m_sName, location.m_aGroupIds.Count(), location.m_iDesiredUnits, location.m_iTargetManpower, location.m_iBudgetRemaining));
 	}
 
-	//! Restore cached (streamed-out) groups instead of spawning fresh ones.
-	//! Only survivors that were alive at stream-out time are respawned.
-	//! Groups that were fully eliminated are skipped.
+	//! Restaura grupos cacheados (que sofreram stream-out) em vez de spawnar
+	//! grupos novos. Apenas os sobreviventes que estavam vivos no momento do
+	//! stream-out sao respawnados. Grupos totalmente eliminados sao ignorados.
 	protected void SpawnLocationFromCache(notnull SPT_GarrisonLocation location)
 	{
 		location.m_bSpawning = true;
@@ -877,8 +877,8 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 
 				if (spawnedUnits < 1)
 				{
-					// Preserve the original snapshot even if the editable
-					// lifecycle temporarily refuses deletion of an empty group.
+					// Preserva o snapshot original mesmo que o ciclo de vida
+					// editavel recuse temporariamente a delecao de um grupo vazio.
 					failedCachedGroups.Insert(cached);
 					GetGame().GetCallqueue().CallLater(
 						RetryDeleteOrphanGroup,
@@ -962,8 +962,8 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			location.m_aCachedGroups.Count()));
 	}
 
-	//! Mobilize new units to replace losses, bounded by target manpower and
-	//! the location's remaining lifetime deployment budget.
+	//! Mobiliza novas unidades para substituir baixas, limitado pelo manpower
+	//! alvo e pelo budget restante de tropas da localizacao.
 	protected int SpawnReinforcementGroups(
 		notnull SPT_GarrisonLocation location,
 		int requestedUnits,
@@ -1170,9 +1170,9 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		return group;
 	}
 
-	//! Spawn a group using a pre-defined list of member prefabs instead of the
-	//! template slots.  Used when restoring a cached (streamed-out) group so that
-	//! only the members who were still alive reappear.
+	//! Spawna um grupo usando uma lista pre-definida de prefabs de membros em vez
+	//! dos slots do template. Usado ao restaurar um grupo cacheado (streamed-out)
+	//! para que apenas os membros que ainda estavam vivos reaparecam.
 	protected SCR_AIGroup SpawnGroupWithMembers(Resource groupResource, vector spawnCenter, notnull array<ResourceName> memberPrefabs, out int spawnedUnits)
 	{
 		spawnedUnits = 0;
@@ -1398,13 +1398,15 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		if (m_bEnableCaching)
 		{
 			// =============================================================
-			// CACHING PATH: Save alive members per group before deleting
-			// the entity.  When the player returns, only survivors are
-			// respawned instead of a fresh garrison.
+			// CAMINHO DE CACHING: Salva os membros vivos de cada grupo
+			// antes de deletar a entidade. Quando o jogador retorna,
+			// apenas os sobreviventes sao respawnados em vez de uma
+			// guarnicao nova.
 			// =============================================================
-			// Start a new snapshot only for a newly active population. If a
-			// previous stream-out retained groups, subsequent retries append to
-			// that same snapshot instead of erasing already captured survivors.
+			// Inicia um novo snapshot apenas para uma populacao recem-ativa.
+			// Se um stream-out anterior reteve grupos, as tentativas
+			// subsequentes adicionam ao mesmo snapshot em vez de apagar
+			// sobreviventes ja capturados.
 			if (!location.m_bHasCachedSnapshot)
 			{
 				location.m_aCachedGroups.Clear();
@@ -1426,9 +1428,9 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 
 				if (!group)
 				{
-					// A tracked group that no longer exists was eliminated before
-					// stream-out. Its absence is part of the cached snapshot.
-					if (record)
+				// Um grupo rastreado que nao existe mais foi eliminado
+				// antes do stream-out. Sua ausencia faz parte do snapshot.
+				if (record)
 						eliminatedCount++;
 					location.m_aGroupIds.Remove(i);
 					if (i < location.m_aGroupRecords.Count())
@@ -1438,8 +1440,8 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 
 				if (record)
 				{
-					// Capture alive members BEFORE deleting the entity
-					SPT_StreamableGarrisonGroup cached = new SPT_StreamableGarrisonGroup();
+				// Captura membros vivos ANTES de deletar a entidade
+				SPT_StreamableGarrisonGroup cached = new SPT_StreamableGarrisonGroup();
 					int aliveCount = cached.CaptureFromGroup(
 						group,
 						record.m_rGroupPrefab,
@@ -1470,16 +1472,17 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 				}
 				else
 				{
-					// No metadata record – delete without caching
-					if (DeleteGroup(group))
+					// Sem registro de metadados – deleta sem cachear
+				if (DeleteGroup(group))
 						location.m_aGroupIds.Remove(i);
 					else
 						retainedCount++;
 				}
 			}
 
-			// Cached data is streamed out state, not an active world entity.
-			// Keep active only while a group could not yet be removed.
+			// Dados cacheados sao estado de stream-out, nao uma entidade
+			// ativa no mundo. Mantem ativo apenas enquanto um grupo nao
+			// pode ser removido.
 			location.m_bActive = !location.m_aGroupIds.IsEmpty();
 			location.m_bSpawning = false;
 			location.m_iPendingGroups = 0;
@@ -1505,7 +1508,8 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		else
 		{
 			// =============================================================
-			// ORIGINAL PATH (no caching): Delete all groups immediately.
+			// CAMINHO ORIGINAL (sem caching): Deleta todos os grupos
+			// imediatamente.
 			// =============================================================
 			int groupCount = location.m_aGroupIds.Count();
 			array<EntityID> pendingGroupIds = {};
@@ -1617,9 +1621,9 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 
 	protected bool DeleteGroup(notnull SCR_AIGroup group)
 	{
-		// The group, its members and its waypoints form one editable hierarchy.
-		// Let the editor lifecycle remove that hierarchy in one operation instead
-		// of deleting each registered entity behind SCR_EditableEntityCore.
+		// O grupo, seus membros e waypoints formam uma hierarquia editavel.
+		// Deixa o ciclo de vida do editor remover essa hierarquia em uma operacao
+		// em vez de deletar cada entidade registrada por detras do SCR_EditableEntityCore.
 		SPT_AIGarrisonHelper.UngarrisonGroup(group, false);
 
 		SCR_EditableEntityComponent editableGroup =
@@ -1651,8 +1655,9 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		return true;
 	}
 
-	//! Retries cleanup when the editable-entity lifecycle temporarily refuses
-	//! deletion of an empty group created by a failed cache restoration.
+	//! Tenta novamente a limpeza quando o ciclo de vida de entidade editavel
+	//! recusa temporariamente a delecao de um grupo vazio criado por uma
+	//! restauracao de cache que falhou.
 	protected void RetryDeleteOrphanGroup(SCR_AIGroup group, int retriesLeft)
 	{
 		if (!group)

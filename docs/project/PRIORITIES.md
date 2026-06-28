@@ -94,8 +94,8 @@ uma restauração para nova tentativa.
 **Arquivos referência JWK:**
 - `teste/freedom/AIForce/STREAMEBLE_AI_GROUP.c` (wrapper)
 - `teste/freedom/AIForce/STREAMEBLE_AI_FORCE.c:332-393` (DoStreamIn / DoStreamOut)
-- `teste/freedom/AIForce/JWK_SCR_AIGroup.c:30-50` (OverrideGroupMembers)
-- `teste/freedom/JWK_AIUtils.c:259-278` (GetGroupAliveMembersPrefabs)
+- `teste/freedom/AI/JWK_SCR_AIGroup.c:30-50` (OverrideGroupMembers)
+- `teste/freedom/AI/JWK_AIUtils.c:259-278` (GetGroupAliveMembersPrefabs)
 
 | Esforço | Impacto |
 |---------|---------|
@@ -153,8 +153,8 @@ protected int m_iLocationBudget;
 - `m_iLocationBudget == 0` mantém o comportamento ilimitado explicitamente configurado
 
 **Arquivos referência JWK:**
-- `teste/freedom/BASER_BATTLE_AI_REGENERATOR.c:60-96` (InitBudget, ConsumeBudget)
-- `teste/freedom/JWK_Battle.c:511-556` (AllocateEnemyBudget_S — scaling por jogador)
+- `teste/freedom/Battle/BASER_BATTLE_AI_REGENERATOR.c:60-96` (InitBudget, ConsumeBudget)
+- `teste/freedom/Battle/JWK_Battle.c:511-556` (AllocateEnemyBudget_S — scaling por jogador)
 - `teste/freedom/AIForce/JWK_AIForce.c:86-94` (GetTotalManpower)
 
 | Esforço | Impacto |
@@ -235,7 +235,7 @@ void ProcessSpawnQueue()
 }
 ```
 
-**Arquivo referência JWK:** `teste/freedom/JWK_SpawnQueuSystem.c:123-214` (PollQueue_S)
+**Arquivo referência JWK:** `teste/freedom/Spawn/JWK_SpawnQueuSystem.c:123-214` (PollQueue_S)
 
 | Esforço | Impacto |
 |---------|---------|
@@ -307,17 +307,17 @@ protected ref ScriptInvoker m_OnLocationCleared; // (SPT_GarrisonLocation)
 | **Histerese** | `CheckStreamStateConditions(streamDistance, out in, out out)` | `AIForce/STREAMEBLE_AI_FORCE.c:301` |
 | **Stream Out** | `JWK_StreamableAIGroup.DoStreamOut()` — salva prefabs, deleta entidade | `AIForce/STREAMEBLE_AI_GROUP.c:106` |
 | **Stream In** | `JWK_StreamableAIForce.DoStreamIn()` — enfileira spawn requests | `AIForce/STREAMEBLE_AI_FORCE.c:332` |
-| **Override membros** | `SCR_AIGroup.JWK_OverrideGroupMembers(array)` | `JWK_SCR_AIGroup.c:30` |
-| **Prefabs dos vivos** | `JWK_AIUtils.GetGroupAliveMembersPrefabs(group, out)` | `JWK_AIUtils.c:259` |
-| **Contagem de vivos** | `JWK_AIUtils.CountAliveCharactersInGroup(group)` | `JWK_AIUtils.c:219` |
-| **Agent está vivo?** | `JWK_AIUtils.IsAgentCharacterAlive(agent)` | `JWK_AIUtils.c:231` |
-| **Spawn Queue** | `JWK_SpawnQueueSystem.PollQueue_S()` | `JWK_SpawnQueuSystem.c:138` |
-| **Budget** | `JWK_BaseBattleAIGenerator.InitBudget() / ConsumeBudget()` | `BASER_BATTLE_AI_REGENERATOR.c:60` |
-| **Budget scaling** | `JWK_Battle.AllocateEnemyBudget_S()` | `JWK_Battle.c:511` |
+| **Override membros** | `SCR_AIGroup.JWK_OverrideGroupMembers(array)` | `AI/JWK_SCR_AIGroup.c:30` |
+| **Prefabs dos vivos** | `JWK_AIUtils.GetGroupAliveMembersPrefabs(group, out)` | `AI/JWK_AIUtils.c:259` |
+| **Contagem de vivos** | `JWK_AIUtils.CountAliveCharactersInGroup(group)` | `AI/JWK_AIUtils.c:219` |
+| **Agent está vivo?** | `JWK_AIUtils.IsAgentCharacterAlive(agent)` | `AI/JWK_AIUtils.c:231` |
+| **Spawn Queue** | `JWK_SpawnQueueSystem.PollQueue_S()` | `Spawn/JWK_SpawnQueuSystem.c:138` |
+| **Budget** | `JWK_BaseBattleAIGenerator.InitBudget() / ConsumeBudget()` | `Battle/BASER_BATTLE_AI_REGENERATOR.c:60` |
+| **Budget scaling** | `JWK_Battle.AllocateEnemyBudget_S()` | `Battle/JWK_Battle.c:511` |
 | **Manpower total** | `JWK_AIForce.GetTotalManpower()` = agents + fila | `AIForce/JWK_AIForce.c:91` |
-| **Config por Attributes** | `[BaseContainerProps(configRoot: true)]` + `JWK_AIManagerConfig` | `JWK_AIManagerConfig.c` |
-| **Spawn seguro** | `JWK_SpawnUtils.FindSafeCharacterSpawnPositionOutdoor(pos)` | `JWK_SpawnUtils.c:185` |
-| **LoS check** | `JWK_SpawnUtils.IsSpawnPositionVisible(ctx, pos)` | `JWK_SpawnUtils.c:336` |
+| **Config por Attributes** | `[BaseContainerProps(configRoot: true)]` + `JWK_AIManagerConfig` | `Configuration/JWK_AIManagerConfig.c` |
+| **Spawn seguro** | `JWK_SpawnUtils.FindSafeCharacterSpawnPositionOutdoor(pos)` | `Spawn/JWK_SpawnUtils.c:185` |
+| **LoS check** | `JWK_SpawnUtils.IsSpawnPositionVisible(ctx, pos)` | `Spawn/JWK_SpawnUtils.c:336` |
 
 ---
 
