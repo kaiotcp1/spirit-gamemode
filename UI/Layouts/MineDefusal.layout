@@ -1,0 +1,224 @@
+FrameWidgetClass {
+ Name "rootFrame"
+ {
+  OverlayWidgetClass "{D6F41B39A8C27E11}" {
+   Name "Screen"
+   Slot FrameWidgetSlot "{D6F41B39A8C27E12}" {
+    Anchor 0 0 1 1
+    OffsetLeft 0
+    OffsetTop 0
+    OffsetRight 0
+    OffsetBottom 0
+   }
+   "Z Order" 100000
+   {
+    ImageWidgetClass "{D6F41B39A8C27E13}" {
+     Name "Dim"
+     Slot OverlayWidgetSlot "{D6F41B39A8C27E14}" {
+      HorizontalAlign 3
+      VerticalAlign 3
+     }
+     Color 0 0 0 0.72
+    }
+    SizeLayoutWidgetClass "{D6F41B39A8C27E15}" {
+     Name "WindowSize"
+     Slot OverlayWidgetSlot "{D6F41B39A8C27E16}" {
+      HorizontalAlign 1
+      VerticalAlign 1
+     }
+     AllowWidthOverride 1
+     WidthOverride 620
+     AllowHeightOverride 1
+     HeightOverride 660
+     {
+      OverlayWidgetClass "{D6F41B39A8C27E17}" {
+       Name "Window"
+       Slot AlignableSlot "{D6F41B39A8C27E18}" {
+        HorizontalAlign 3
+        VerticalAlign 3
+       }
+       {
+        ImageWidgetClass "{D6F41B39A8C27E19}" {
+         Name "Background"
+         Slot OverlayWidgetSlot "{D6F41B39A8C27E1A}" {
+          HorizontalAlign 3
+          VerticalAlign 3
+         }
+         Color 0.035 0.045 0.035 0.98
+        }
+        VerticalLayoutWidgetClass "{D6F41B39A8C27E1B}" {
+         Name "Content"
+         Slot OverlayWidgetSlot "{D6F41B39A8C27E1C}" {
+          HorizontalAlign 3
+          VerticalAlign 3
+          Padding 32 28 32 28
+         }
+         {
+          TextWidgetClass "{D6F41B39A8C27E1D}" {
+           Name "Title"
+           Slot LayoutSlot "{D6F41B39A8C27E1E}" {
+            HorizontalAlign 1
+            Padding 0 0 0 12
+           }
+           Text "MINE DEFUSAL"
+           "Font Size" 36
+           "Horizontal Alignment" Center
+          }
+          TextWidgetClass "{D6F41B39A8C27E1F}" {
+           Name "TypeText"
+           Slot LayoutSlot "{D6F41B39A8C27E20}" {
+            HorizontalAlign 1
+            Padding 0 4 0 4
+           }
+           Text "Type: Mine"
+           "Font Size" 22
+          }
+          TextWidgetClass "{D6F41B39A8C27E21}" {
+           Name "ToolText"
+           Slot LayoutSlot "{D6F41B39A8C27E22}" {
+            HorizontalAlign 1
+            Padding 0 4 0 12
+           }
+           Text "Requires: EOD Toolkit"
+           "Font Size" 18
+          }
+          TextWidgetClass "{D6F41B39A8C27E23}" {
+           Name "TimerText"
+           Slot LayoutSlot "{D6F41B39A8C27E24}" {
+            HorizontalAlign 1
+            Padding 0 8 0 5
+           }
+           Text "Time: 45s"
+           "Font Size" 28
+          }
+          SizeLayoutWidgetClass "{D6F41B39A8C27E25}" {
+           Name "TimerSize"
+           Slot LayoutSlot "{D6F41B39A8C27E26}" {
+            HorizontalAlign 3
+            Padding 0 0 0 18
+           }
+           AllowHeightOverride 1
+           HeightOverride 14
+           {
+            ProgressBarWidgetClass "{D6F41B39A8C27E27}" {
+             Name "TimerBar"
+             Slot AlignableSlot "{D6F41B39A8C27E28}" {
+              HorizontalAlign 3
+              VerticalAlign 3
+             }
+             Color 0.78 0.15 0.08 1
+            }
+           }
+          }
+          ButtonWidgetClass "{D6F41B39A8C27E30}" {
+           Name "WireButton_0"
+           Slot LayoutSlot "{D6F41B39A8C27E31}" {
+            HorizontalAlign 3
+            Padding 0 5 0 5
+           }
+           Color 0.18 0.22 0.18 1
+           {
+            TextWidgetClass "{D6F41B39A8C27E32}" {
+             Name "WireText_0"
+             Text "[1]  RED WIRE"
+             "Font Size" 18
+             "Horizontal Alignment" Center
+             "Vertical Alignment" Center
+            }
+           }
+          }
+          ButtonWidgetClass "{D6F41B39A8C27E33}" {
+           Name "WireButton_1"
+           Slot LayoutSlot "{D6F41B39A8C27E34}" {
+            HorizontalAlign 3
+            Padding 0 5 0 5
+           }
+           Color 0.18 0.22 0.18 1
+           {
+            TextWidgetClass "{D6F41B39A8C27E35}" {
+             Name "WireText_1"
+             Text "[2]  BLUE WIRE"
+             "Font Size" 18
+             "Horizontal Alignment" Center
+             "Vertical Alignment" Center
+            }
+           }
+          }
+          ButtonWidgetClass "{D6F41B39A8C27E36}" {
+           Name "WireButton_2"
+           Slot LayoutSlot "{D6F41B39A8C27E37}" {
+            HorizontalAlign 3
+            Padding 0 5 0 5
+           }
+           Color 0.18 0.22 0.18 1
+           {
+            TextWidgetClass "{D6F41B39A8C27E38}" {
+             Name "WireText_2"
+             Text "[3]  GREEN WIRE"
+             "Font Size" 18
+             "Horizontal Alignment" Center
+             "Vertical Alignment" Center
+            }
+           }
+          }
+          ButtonWidgetClass "{D6F41B39A8C27E39}" {
+           Name "WireButton_3"
+           Slot LayoutSlot "{D6F41B39A8C27E3A}" {
+            HorizontalAlign 3
+            Padding 0 5 0 5
+           }
+           Color 0.18 0.22 0.18 1
+           {
+            TextWidgetClass "{D6F41B39A8C27E3B}" {
+             Name "WireText_3"
+             Text "[4]  YELLOW WIRE"
+             "Font Size" 18
+             "Horizontal Alignment" Center
+             "Vertical Alignment" Center
+            }
+           }
+          }
+          ButtonWidgetClass "{D6F41B39A8C27E3C}" {
+           Name "WireButton_4"
+           Slot LayoutSlot "{D6F41B39A8C27E3D}" {
+            HorizontalAlign 3
+            Padding 0 5 0 12
+           }
+           Color 0.18 0.22 0.18 1
+           {
+            TextWidgetClass "{D6F41B39A8C27E3E}" {
+             Name "WireText_4"
+             Text "[5]  BLACK WIRE"
+             "Font Size" 18
+             "Horizontal Alignment" Center
+             "Vertical Alignment" Center
+            }
+           }
+          }
+          ButtonWidgetClass "{D6F41B39A8C27E3F}" {
+           Name "BackButton"
+           Slot LayoutSlot "{D6F41B39A8C27E40}" {
+            HorizontalAlign 1
+            Padding 0 10 0 0
+           }
+           Color 0.18 0.22 0.18 1
+           {
+            TextWidgetClass "{D6F41B39A8C27E41}" {
+             Name "CancelText"
+             Text "[ESC]  CANCEL"
+             "Font Size" 18
+             "Horizontal Alignment" Center
+             "Vertical Alignment" Center
+            }
+           }
+          }
+         }
+        }
+       }
+      }
+     }
+    }
+   }
+  }
+ }
+}

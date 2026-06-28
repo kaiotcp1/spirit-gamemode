@@ -1,0 +1,36 @@
+GenericEntity {
+ ID "B72C51EA34D8F922"
+ components {
+  SPT_MineDefusalComponent "{B72C51EA34D8F923}" {
+   m_iWireCount 5
+   m_fTimerSeconds 45
+   m_bRequiresTool 1
+   m_sMineType "Mine"
+  }
+  ActionsManagerComponent "{B72C51EA34D8F924}" {
+   ActionContexts {
+    UserActionContext "{B72C51EA34D8F925}" {
+     ContextName "default"
+     Position PointInfo "{B72C51EA34D8F926}" {
+     }
+     Radius 0.8
+    }
+   }
+   additionalActions {
+    SPT_DefuseMineAction "{B72C51EA34D8F927}" {
+     ParentContextList {
+      "default"
+     }
+     UIInfo UIInfo "{B72C51EA34D8F928}" {
+      Name "Defuse Mine"
+     }
+     VisibilityRange 3
+     "Sort Priority" 100
+    }
+   }
+  }
+  RplComponent "{B72C51EA34D8F929}" {
+  }
+ }
+ Flags 1027
+}

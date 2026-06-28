@@ -1,0 +1,4 @@
+interface:
+  display_name: "Reforger Actions and UI"
+  short_description: "Reliable actions and UI patterns for Reforger"
+  default_prompt: "Use $reforger-actions-ui to implement a network-safe interaction action and UI flow in Arma Reforger."

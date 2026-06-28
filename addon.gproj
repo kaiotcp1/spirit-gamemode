@@ -1,0 +1,8 @@
+GameProject {
+ ID "SPTGAME"
+ GUID "69B768A59ED10F8F"
+ TITLE "SPT_GAME"
+ Dependencies {
+  "58D0FB3206B6F859"
+ }
+}

@@ -1,0 +1,17 @@
+MetaFileClass {
+ Name "{B72C51EA34D8F921}Prefabs/MineDefusal/SPT_MineDefusalProxy.et"
+ Configurations {
+  ENTResourceClass PC {
+  }
+  ENTResourceClass XBOX_ONE : PC {
+  }
+  ENTResourceClass XBOX_SERIES : PC {
+  }
+  ENTResourceClass PS4 : PC {
+  }
+  ENTResourceClass PS5 : PC {
+  }
+  ENTResourceClass HEADLESS : PC {
+  }
+ }
+}
