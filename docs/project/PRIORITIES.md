@@ -77,23 +77,17 @@ class SPT_StreamableGarrisonGroup
 {
     ResourceName m_rGroupPrefab;            // Prefab original do grupo
     ref array<ResourceName> m_aAliveMembers; // Prefabs dos membros AINDA VIVOS
-    vector m_vPosition;                      // Última posição conhecida
-    EntityID m_GroupID;                      // ID quando spawnado, INVALID quando cached
+    vector m_vPosition;                      // Centro real dos sobreviventes no stream-out
     bool m_bIsCQB;                           // true = CQB, false = patrol
 
-    // Quando jogador sai do raio:
-    //   1. Salva m_aAliveMembers = GetGroupAliveMembersPrefabs()
-    //   2. Seta m_GroupID = EntityID.INVALID
-    //   3. Deleta entidade
-    void DoStreamOut();
-
-    // Quando jogador entra no raio:
-    //   1. Usa SCR_AIGroup.JWK_OverrideGroupMembers(m_aAliveMembers) pra spawnar só vivos
-    //   2. Seta m_GroupID = novo ID
-    //   3. Se m_aAliveMembers estiver vazio, não spawna (grupo foi eliminado)
-    bool DoStreamIn();
+    int CaptureFromGroup(SCR_AIGroup group, ...); // Captura prefabs e centro dos vivos
+    int GetCachedManpower();                      // Quantidade restaurável
 }
 ```
+
+O wrapper representa somente o estado cacheado. O manager mantém os `EntityID`
+dos grupos ativos, executa stream-out/in e preserva entradas que falharem durante
+uma restauração para nova tentativa.
 
 **Onde mexer:** `SPT_WorldGarrisonManagerComponent.c` — alterar `SpawnLocation()` e `DespawnLocation()`.
 
@@ -107,13 +101,22 @@ class SPT_StreamableGarrisonGroup
 |---------|---------|
 | ~150 linhas, 1-2h | ⭐⭐⭐⭐⭐ Transforma o jogo |
 
+**Validação manual concluída em 2026-06-28:**
+- Cache parcial restaurou exatamente os sobreviventes (`3 grupos / 15 unidades`)
+- Oito grupos eliminados permaneceram eliminados após stream out/in
+- Local completamente eliminado permaneceu limpo e não gerou uma nova guarnição
+
 ---
 
 ### FASE 3 — Orçamento por Localização ⭐⭐⭐⭐
 
-**Problema:** Cada localização spawna um número fixo de grupos. Tropas são infinitas.
+**Problema:** O caching preserva baixas, mas cada localização ainda não possui uma
+reserva configurável para limitar o total de tropas que poderá mobilizar ao longo
+da partida.
 
-**Solução:** Adicionar budget por `SPT_GarrisonLocation`. Quando tropas morrem, o budget é consumido. Quando zera, a localização fica "limpa".
+**Solução:** Adicionar budget de mobilização por `SPT_GarrisonLocation`. O budget
+é consumido quando uma nova unidade é colocada em campo, seguindo o padrão JWK
+`ConsumeBudget()`; uma morte não desconta novamente uma unidade que já foi paga.
 
 **Onde mexer:** `Scripts/Game/GameMode/SPT_WorldGarrisonManagerComponent.c` (classe `SPT_GarrisonLocation`)
 
@@ -123,8 +126,11 @@ class SPT_GarrisonLocation
     // ... membros existentes ...
 
     int m_iMaxBudget;          // Budget máximo (definido por Attribute)
-    int m_iBudgetRemaining;    // Budget restante
-    int m_iTotalManpower;      // Vivos + cached + spawnando
+    int m_iBudgetRemaining;    // Reserva ainda não mobilizada
+    int m_iTargetManpower;     // Tamanho desejado da guarnição ativa
+    bool m_bCleared;           // Sem manpower e sem reserva
+
+    int GetTotalManpower();    // Derivado: vivos + cached + spawnando
 }
 ```
 
@@ -136,10 +142,15 @@ protected int m_iLocationBudget;
 
 **Regras:**
 - Cada localização recebe `m_iLocationBudget` de budget
-- `Cada personagem = 1 de budget`
-- Quando morre → `m_iBudgetRemaining -= 1`
-- Spawn só acontece se `m_iBudgetRemaining > 0`
-- Quando zera → localização marcada como `m_bCleared`
+- Cada personagem mobilizado pela primeira vez custa `1` de budget
+- O spawn inicial consome budget até `m_iTargetManpower` ou até a reserva zerar
+- Restaurar um sobrevivente do cache não consome budget novamente
+- Mortes reduzem o manpower, mas não descontam novamente o budget
+- Em um stream-in posterior, a localização pode preencher a diferença até
+  `m_iTargetManpower`, consumindo a reserva restante
+- `GetTotalManpower()` deve ser calculado, não armazenado, para evitar estado obsoleto
+- Quando `GetTotalManpower() == 0` e `m_iBudgetRemaining == 0`, marcar `m_bCleared`
+- `m_iLocationBudget == 0` mantém o comportamento ilimitado explicitamente configurado
 
 **Arquivos referência JWK:**
 - `teste/freedom/BASER_BATTLE_AI_REGENERATOR.c:60-96` (InitBudget, ConsumeBudget)
@@ -149,6 +160,31 @@ protected int m_iLocationBudget;
 | Esforço | Impacto |
 |---------|---------|
 | ~80 linhas, 1h | ⭐⭐⭐⭐ Torna o jogo finito |
+
+**Implementação:**
+- Budget inicializado individualmente para cada `SPT_GarrisonLocation`
+- Spawn inicial limitado pelo budget, mantendo o manpower-alvo original
+- Sobreviventes do cache restaurados sem novo custo
+- Déficit preenchido por reforços enquanto houver reserva
+- `GetTotalManpower()` derivado de agentes ativos, filas de grupo e cache
+- Local marcado como limpo somente quando manpower e reserva chegam a zero
+
+**Validação manual esperada com budget 50 e alvo 31:**
+1. Spawn inicial: `manpower=31/31`, `budgetRestante=19`
+2. Após perder 16 e fazer stream-out/in: restaurar 15, mobilizar 16 reforços,
+   terminar novamente em `31/31`, `budgetRestante=3`
+3. Após eliminar os 31 e retornar: mobilizar somente 3 reforços,
+   `budgetRestante=0`
+4. Após eliminar os últimos 3 e fazer stream-out: `manpower=0`,
+   `budgetRestante=0`, `limpo=1`
+
+**Validação manual concluída em 2026-06-28:**
+- Spawn inicial mobilizou `31/31` unidades e preservou `19` de reserva
+- Quatro sobreviventes foram restaurados sem custo e os `19` reforços restantes
+  foram mobilizados, resultando em `23/31` e `budgetRestante=0`
+- Um novo ciclo restaurou as `23` unidades sem criar reforços
+- Após a eliminação total, o local registrou `manpower=0`,
+  `budgetRestante=0`, `limpo=1` e não voltou a gerar tropas
 
 ---
 
@@ -285,26 +321,13 @@ protected ref ScriptInvoker m_OnLocationCleared; // (SPT_GarrisonLocation)
 
 ---
 
-## ⚠️ Nota sobre Licença
-
-O código `teste/freedom/` está sob licença **APL-ND (No Derivatives)**:
-> "If you remix, transform, or build upon the material, you may not distribute the modified material."
-
-**Isso significa:**
-- ✅ Use como **referência de arquitetura e padrões**
-- ✅ **Implemente do zero** no padrão `SPT_`
-- ❌ **Não copie/cole** trechos de código JWK literalmente
-- ❌ **Não distribua** código JWK modificado
-
----
-
 ## 📈 Progresso
 
 | Fase | Status | Data |
 |------|--------|------|
 | 1. Histerese | ✅ Concluído | 2026-06-28 |
-| 2. Caching | ⬜ Pendente | — |
-| 3. Orçamento | ⬜ Pendente | — |
+| 2. Caching | ✅ Concluído | 2026-06-28 |
+| 3. Orçamento | ✅ Concluído | 2026-06-28 |
 | 4. Spawn Assíncrono | ⬜ Pendente | — |
 | 5. Eventos | ⬜ Pendente | — |
 | 6. Persistência | ⬜ Pendente | — |
