@@ -70,6 +70,9 @@ class SPT_GarrisonSpawnRequest : Managed
 
 class SPT_GarrisonLocation : Managed
 {
+	//! Identificador estavel e unico derivado do descritor do mapa.
+	//! Usado pelo sistema Warfare para referenciar pontos de forma consistente.
+	string m_sLocationId;
 	vector m_vCenter;
 	string m_sName;
 	int m_iDescriptorType;
@@ -80,12 +83,18 @@ class SPT_GarrisonLocation : Managed
 	//! apos todos os grupos desta localizacao terem sido eliminados.
 	bool m_bHasCachedSnapshot;
 	bool m_bCleared;
+	//! Verdadeiro quando a primeira baixa da guarnicao foi detectada.
+	//! Usado pelo Warfare para disparar reforcos uma unica vez.
+	bool m_bFirstCasualtyTriggered;
 	int m_iPendingGroups;
 	int m_iSuccessfulGroups;
 	int m_iDesiredUnits;
 	int m_iMaxBudget;
 	int m_iBudgetRemaining;
 	int m_iTargetManpower;
+	//! Snapshot do manpower total da guarnicao no momento em que o deploy
+	//! inicial termina. Usado para detectar a primeira baixa.
+	int m_iInitialGarrisonManpower;
 	int m_iSpawnGeneration;
 	int m_iQueuedSpawnUnits;
 	int m_iQueuedGarrisonUnits;
@@ -101,11 +110,59 @@ class SPT_GarrisonLocation : Managed
 	ref array<ref SPT_GroupSpawnRecord> m_aGroupRecords = new array<ref SPT_GroupSpawnRecord>();
 	ref SPT_LocationBattleState m_Battle = new SPT_LocationBattleState();
 
-	void SPT_GarrisonLocation(vector center, string name, int descriptorType)
+	void SPT_GarrisonLocation(vector center, string name, int descriptorType, string locationId = "")
 	{
 		m_vCenter = center;
 		m_sName = name;
 		m_iDescriptorType = descriptorType;
+		m_sLocationId = locationId;
+		if (m_sLocationId.IsEmpty())
+			m_sLocationId = GenerateLocationId(name, descriptorType);
+	}
+
+	//! Gera um ID estavel a partir do nome e tipo do descritor.
+	//! Remove caracteres especiais para criar um identificador limpo.
+	static string GenerateLocationId(string name, int descriptorType)
+	{
+		string clean = name;
+		clean.Replace("#", "");
+		clean.Replace("-", "_");
+		clean.Replace(".", "");
+		clean.Replace(" ", "_");
+		if (clean.IsEmpty())
+			clean = string.Format("LOC_%1", descriptorType);
+		return clean;
+	}
+
+	//! Captura o manpower atual como referencia inicial para deteccao de
+	//! primeira baixa. Chamado pelo monitor de estado da guarnicao.
+	void SnapInitialManpower()
+	{
+		m_iInitialGarrisonManpower = GetGarrisonManpower();
+		m_bFirstCasualtyTriggered = false;
+	}
+
+	//! Manpower combinado de todos os grupos de guarnicao (CQB + patrulha),
+	//! excluindo grupos de batalha e cache pendente.
+	int GetGarrisonManpower()
+	{
+		return GetCachedGarrisonManpower() + GetActiveGarrisonManpower() + m_iQueuedGarrisonUnits;
+	}
+
+	//! Verifica se a primeira baixa ocorreu e retorna verdadeiro apenas na
+	//! transicao (one-shot). O caller deve agir imediatamente.
+	bool CheckFirstCasualty()
+	{
+		if (m_bFirstCasualtyTriggered)
+			return false;
+
+		int current = GetGarrisonManpower();
+		if (current < m_iInitialGarrisonManpower)
+		{
+			m_bFirstCasualtyTriggered = true;
+			return true;
+		}
+		return false;
 	}
 
 	//! Total de manpower entre os grupos cacheados (ainda nao respawnados).
@@ -196,13 +253,18 @@ class SPT_GarrisonLocation : Managed
 
 	void RefreshClearedState()
 	{
-		// Budget restante representa reserva para uma batalha explicita. Ele nao
-		// impede que a guarnicao local seja considerada completamente eliminada.
-		if (!m_bHasCachedSnapshot)
+		// Para localizacoes ativas sem cache, verifica a guarnicao ativa diretamente.
+		// O budget restante (reserva de batalha) nao impede que a guarnicao local
+		// seja considerada completamente eliminada.
+		if (m_bHasCachedSnapshot)
+		{
+			int garrisonManpower = GetCachedGarrisonManpower() + GetActiveGarrisonManpower();
+			m_bCleared = garrisonManpower < 1 && GetQueuedGarrisonRequests() < 1;
 			return;
+		}
 
-		int garrisonManpower = GetCachedGarrisonManpower() + GetActiveGarrisonManpower();
-		m_bCleared = garrisonManpower < 1 && GetQueuedGarrisonRequests() < 1;
+		// Localizacao ativa sem cache: verifica apenas grupos ativos
+		m_bCleared = GetActiveGarrisonManpower() < 1 && GetQueuedGarrisonRequests() < 1;
 	}
 
 	int GetCachedGarrisonManpower()
@@ -253,8 +315,38 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 	protected const int PATROL_SPAWN_RING_COUNT = 4;
 	protected const int PATROL_SPAWN_SAMPLES_PER_RING = 24;
 	protected const int BATTLE_UPDATE_INTERVAL_MS = 5000;
+	protected const int GARRISON_STATE_CHECK_INTERVAL_MS = 2000;
 
 	protected static SPT_WorldGarrisonManagerComponent s_Instance;
+
+	//-----------------------------------------------------------------------
+	// EVENTOS PUBLICOS (Warfare)
+	//-----------------------------------------------------------------------
+
+	//! Disparado quando a primeira baixa da guarnicao ocorre.
+	//! Parametros: string locationId
+	protected ref ScriptInvoker m_OnGarrisonFirstCasualty = new ScriptInvoker();
+
+	//! Disparado quando a guarnicao local e completamente eliminada.
+	//! Parametros: string locationId
+	protected ref ScriptInvoker m_OnGarrisonCleared = new ScriptInvoker();
+
+	//! Disparado quando uma batalha explicita e iniciada.
+	//! Parametros: string locationId
+	protected ref ScriptInvoker m_OnBattleStarted = new ScriptInvoker();
+
+	//! Disparado quando uma nova onda de batalha e agendada.
+	//! Parametros: string locationId, int waveIndex
+	protected ref ScriptInvoker m_OnBattleWaveScheduled = new ScriptInvoker();
+
+	//! Disparado quando uma onda de batalha e materializada (grupos spawnados).
+	//! Parametros: string locationId, int waveIndex, int unitCount
+	protected ref ScriptInvoker m_OnBattleWaveDeployed = new ScriptInvoker();
+
+	//! Disparado quando uma batalha e encerrada (todas as ondas derrotadas
+	//! ou batalha cancelada).
+	//! Parametros: string locationId
+	protected ref ScriptInvoker m_OnBattleEnded = new ScriptInvoker();
 
 	static SPT_WorldGarrisonManagerComponent GetInstance()
 	{
@@ -401,6 +493,7 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			GetGame().GetCallqueue().CallLater(ConfigureGameMasterBudget, 1000, false, 10);
 		GetGame().GetCallqueue().CallLater(InitializeLocations, 1000, false);
 		GetGame().GetCallqueue().CallLater(UpdateBattles, BATTLE_UPDATE_INTERVAL_MS, true);
+		GetGame().GetCallqueue().CallLater(MonitorGarrisonState, GARRISON_STATE_CHECK_INTERVAL_MS, true);
 	}
 
 	protected void ValidateSettings()
@@ -582,17 +675,24 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			return true;
 
 		string name = "Map location";
+		string locationId = "";
 		MapItem item = descriptor.Item();
 		if (item)
 		{
 			string displayName = item.GetDisplayName();
 			if (!displayName.IsEmpty())
+			{
 				name = displayName;
+				locationId = SPT_GarrisonLocation.GenerateLocationId(displayName, descriptor.GetBaseType());
+			}
 		}
 
-		m_aLocations.Insert(new SPT_GarrisonLocation(center, name, descriptor.GetBaseType()));
-		DebugLog(string.Format("Local registrado | nome=%1 | tipo=%2 | posicao=%3",
-			name, descriptor.GetBaseType(), center));
+		if (locationId.IsEmpty())
+			locationId = string.Format("LOC_%1_%2", descriptor.GetBaseType(), center.ToString());
+
+		m_aLocations.Insert(new SPT_GarrisonLocation(center, name, descriptor.GetBaseType(), locationId));
+		DebugLog(string.Format("Local registrado | id=%1 | nome=%2 | tipo=%3 | posicao=%4",
+			locationId, name, descriptor.GetBaseType(), center));
 		return true;
 	}
 
@@ -786,9 +886,7 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 
 		location.m_Battle.Reset();
 		location.m_Battle.m_bActive = true;
-		location.m_Battle.m_iTimerMs = RandomRangeInt(
-			m_iBattleInitialDelayMinMs,
-			m_iBattleInitialDelayMaxMs);
+		location.m_Battle.m_iTimerMs = 0;
 		BuildBattleWaves(location);
 
 		if (location.m_Battle.m_aWaves.IsEmpty())
@@ -802,6 +900,7 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			location.m_Battle.m_aWaves.Count(),
 			location.m_iBudgetRemaining,
 			location.m_Battle.m_iTimerMs));
+		m_OnBattleStarted.Invoke(location.m_sLocationId);
 		return true;
 	}
 
@@ -820,6 +919,7 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		RemoveBattleForces(location);
 		Print(string.Format("[SPT_WorldGarrison] Batalha cancelada | local=%1 | reserva=%2",
 			location.m_sName, location.m_iBudgetRemaining));
+		m_OnBattleEnded.Invoke(location.m_sLocationId);
 		return true;
 	}
 
@@ -856,6 +956,170 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 	{
 		SPT_GarrisonLocation location = FindNearestLocation(position);
 		return location && location.m_Battle.m_bActive;
+	}
+
+	//-----------------------------------------------------------------------
+	// GETTERS DE EVENTOS PUBLICOS (Warfare)
+	//-----------------------------------------------------------------------
+
+	ScriptInvoker GetOnGarrisonFirstCasualty() { return m_OnGarrisonFirstCasualty; }
+	ScriptInvoker GetOnGarrisonCleared() { return m_OnGarrisonCleared; }
+	ScriptInvoker GetOnBattleStarted() { return m_OnBattleStarted; }
+	ScriptInvoker GetOnBattleWaveScheduled() { return m_OnBattleWaveScheduled; }
+	ScriptInvoker GetOnBattleWaveDeployed() { return m_OnBattleWaveDeployed; }
+	ScriptInvoker GetOnBattleEnded() { return m_OnBattleEnded; }
+
+	//-----------------------------------------------------------------------
+	// CONSULTAS PUBLICAS (Warfare)
+	//-----------------------------------------------------------------------
+
+	//! Encontra uma localizacao pelo ID estavel.
+	//! @param locationId O identificador estavel da localizacao
+	//! @return A localizacao ou null se nao encontrada
+	SPT_GarrisonLocation FindLocationById(string locationId)
+	{
+		if (locationId.IsEmpty())
+			return null;
+
+		foreach (SPT_GarrisonLocation location : m_aLocations)
+		{
+			if (location.m_sLocationId == locationId)
+				return location;
+		}
+		return null;
+	}
+
+	//! Retorna o numero total de localizacoes registradas.
+	int GetLocationCount()
+	{
+		return m_aLocations.Count();
+	}
+
+	//! Preenche um array com todos os IDs de localizacao registrados.
+	void GetAllLocationIds(notnull array<string> outIds)
+	{
+		outIds.Clear();
+		foreach (SPT_GarrisonLocation location : m_aLocations)
+			outIds.Insert(location.m_sLocationId);
+	}
+
+	//! Retorna um snapshot publico do estado da guarnicao em uma localizacao.
+	//! @param locationId O identificador estavel da localizacao
+	//! @return true se a localizacao foi encontrada e os parametros out foram preenchidos
+	bool GetLocationState(string locationId, out vector outCenter, out string outName, out int outDescriptorType,
+		out int outGarrisonManpower, out int outTargetManpower, out int outPendingSpawns,
+		out bool outCleared, out int outBudgetRemaining, out bool outBattleActive,
+		out int outBattleWaveIndex, out int outBattleWaveCount)
+	{
+		outCenter = vector.Zero;
+		outName = "";
+		outDescriptorType = 0;
+		outGarrisonManpower = 0;
+		outTargetManpower = 0;
+		outPendingSpawns = 0;
+		outCleared = false;
+		outBudgetRemaining = 0;
+		outBattleActive = false;
+		outBattleWaveIndex = -1;
+		outBattleWaveCount = 0;
+
+		SPT_GarrisonLocation location = FindLocationById(locationId);
+		if (!location)
+			return false;
+
+		outCenter = location.m_vCenter;
+		outName = location.m_sName;
+		outDescriptorType = location.m_iDescriptorType;
+		outGarrisonManpower = location.GetGarrisonManpower();
+		outTargetManpower = location.m_iTargetManpower;
+		outPendingSpawns = location.m_iQueuedSpawnUnits;
+		outCleared = location.m_bCleared;
+		outBudgetRemaining = location.m_iBudgetRemaining;
+		outBattleActive = location.m_Battle.m_bActive;
+		outBattleWaveIndex = location.m_Battle.m_iCurrentWave;
+		outBattleWaveCount = location.m_Battle.m_aWaves.Count();
+		return true;
+	}
+
+	//! Inicia o monitoramento de primeira baixa para uma localizacao.
+	//! Captura o manpower inicial como referencia. Chamado pelo Warfare quando
+	//! um ponto entra na frente de batalha.
+	bool StartMonitoringLocation(string locationId)
+	{
+		SPT_GarrisonLocation location = FindLocationById(locationId);
+		if (!location)
+			return false;
+
+		location.SnapInitialManpower();
+		DebugLog(string.Format("Monitoramento iniciado | id=%1 | manpowerInicial=%2",
+			locationId, location.m_iInitialGarrisonManpower));
+		return true;
+	}
+
+	//! Verifica todas as localizacoes ativas por eventos de estado da guarnicao.
+	//! Chamado periodicamente via CallLater.
+	protected void MonitorGarrisonState()
+	{
+		foreach (SPT_GarrisonLocation location : m_aLocations)
+		{
+			if (!location.m_bActive)
+				continue;
+
+			// Se o monitoramento foi iniciado mas a guarnicao ainda nao
+			// estava ativa (manpowerInicial=0), re-captura agora que
+			// a guarnicao esta ativa e tem unidades.
+			if (location.m_iInitialGarrisonManpower <= 0)
+			{
+				int currentGarrison = location.GetGarrisonManpower();
+				if (currentGarrison > 0)
+				{
+					location.SnapInitialManpower();
+					Print(string.Format("[SPT_WorldGarrison] Monitoramento re-capturado | id=%1 | nome=%2 | manpowerInicial=%3",
+						location.m_sLocationId,
+						location.m_sName,
+						location.m_iInitialGarrisonManpower));
+				}
+				continue;
+			}
+
+			// Verifica primeira baixa
+			if (location.CheckFirstCasualty())
+			{
+				Print(string.Format("[SPT_WorldGarrison] Primeira baixa detectada | id=%1 | nome=%2 | manpowerAtual=%3/%4",
+					location.m_sLocationId,
+					location.m_sName,
+					location.GetGarrisonManpower(),
+					location.m_iInitialGarrisonManpower));
+				m_OnGarrisonFirstCasualty.Invoke(location.m_sLocationId);
+			}
+
+			// Verifica guarnicao eliminada
+			location.RefreshClearedState();
+			
+			// Log de diagnostico a cada ciclo para localizacoes monitoradas
+			if (m_bDebug)
+			{
+				Print(string.Format("[SPT_WorldGarrison][DEBUG] MonitorGarrisonState | id=%1 | ativo=%2 | cached=%3 | ativoManpower=%4 | filaGarrison=%5 | limpo=%6 | inicialManpower=%7",
+					location.m_sLocationId,
+					location.m_bActive,
+					location.m_bHasCachedSnapshot,
+					location.GetActiveGarrisonManpower(),
+					location.GetQueuedGarrisonRequests(),
+					location.m_bCleared,
+					location.m_iInitialGarrisonManpower));
+			}
+
+			if (location.m_bCleared)
+			{
+				Print(string.Format("[SPT_WorldGarrison] Guarnicao eliminada | id=%1 | nome=%2",
+					location.m_sLocationId, location.m_sName));
+				m_OnGarrisonCleared.Invoke(location.m_sLocationId);
+
+				// Reseta o monitoramento para evitar disparos repetidos
+				location.m_iInitialGarrisonManpower = 0;
+				location.m_bFirstCasualtyTriggered = false;
+			}
+		}
 	}
 
 	protected SPT_GarrisonLocation FindNearestLocation(vector position)
@@ -982,6 +1246,7 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			location.m_sName,
 			location.m_Battle.m_aWaves.Count(),
 			location.m_iBudgetRemaining));
+		m_OnBattleEnded.Invoke(location.m_sLocationId);
 	}
 
 	protected int CountAliveBattleUnits(notnull SPT_GarrisonLocation location)
@@ -1085,6 +1350,7 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			SCR_Enum.GetEnumName(SPT_EDeploymentStrategy, wave.m_eStrategy),
 			wave.m_iUnitBudget,
 			requests.Count()));
+		m_OnBattleWaveDeployed.Invoke(location.m_sLocationId, nextIndex, wave.m_iUnitBudget);
 	}
 
 	protected void SpawnConvoyVehicles(
@@ -1361,9 +1627,9 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 
 	protected void ScheduleNextBattleWave(notnull SPT_GarrisonLocation location)
 	{
-		location.m_Battle.m_iTimerMs = RandomRangeInt(
-			m_iBattleWaveDelayMinMs,
-			m_iBattleWaveDelayMaxMs);
+		location.m_Battle.m_iTimerMs = 0;
+		int nextIndex = location.m_Battle.m_iCurrentWave + 1;
+		m_OnBattleWaveScheduled.Invoke(location.m_sLocationId, nextIndex);
 	}
 
 	protected int RandomRangeInt(int minimum, int maximum)
