@@ -1,49 +1,55 @@
 FrameWidgetClass {
- Name "WarfareMapRoot"
- "Z Order" 500
+ Name "WarfareMapOverlay"
+ "Z Order" 50
+ Slot FrameWidgetSlot "{50A4DDC879494989}" {
+  Anchor 0 0 1 1
+ }
  {
   CanvasWidgetClass "{599454C9CFD282C8}" {
    Name "WarfareCanvas"
    Slot FrameWidgetSlot "{50A4DDC879494989}" {
     Anchor 0 0 1 1
    }
-   Color 0.1 0.1 0.12 0.92
-   SizeInUnits 1920 1080
+   Color 1 1 1 1
    Clear 1
-   ClearColor 0.05 0.05 0.08 1
+   ClearColor 0 0 0 0
   }
   FrameWidgetClass {
-   Name "TitleBar"
+   Name "WarfareTooltip"
+   "Z Order" 60
    Slot FrameWidgetSlot "{50A4DDC879494989}" {
-    Anchor 0 0 1 0
-    SizeY 40
+    PositionX 0
+    PositionY 0
+    SizeX 310
+    SizeY 126
    }
-   Color 0.15 0.15 0.2 1
+   Color 0.035 0.045 0.06 0.96
    {
     TextWidgetClass {
-     Name "TitleText"
+     Name "TooltipTitle"
      Slot FrameWidgetSlot "{50A4DDC879494989}" {
-      Alignment 0.5 0.5
+      PositionX 12
+      PositionY 8
+      SizeX 286
+      SizeY 24
      }
      Color 1 1 1 1
-     Text "MAPA DE GUERRA"
-     Font "{3E7733BAC8C831F6}UI/Fonts/RobotoCondensed/RobotoCondensed_Regular.fnt"
-     "Font Size" 20
+     Text ""
+     "Font Size" 18
+    }
+    TextWidgetClass {
+     Name "TooltipBody"
+     Slot FrameWidgetSlot "{50A4DDC879494989}" {
+      PositionX 12
+      PositionY 35
+      SizeX 286
+      SizeY 84
+     }
+     Color 0.82 0.86 0.92 1
+     Text ""
+     "Font Size" 14
     }
    }
-  }
-  TextWidgetClass {
-   Name "HintText"
-   Slot FrameWidgetSlot "{50A4DDC879494989}" {
-    Anchor 0 1 1 1
-    PositionY -30
-    SizeY 25
-   }
-   Color 0.6 0.6 0.6 1
-   Text "ESC para fechar"
-   Font "{3E7733BAC8C831F6}UI/Fonts/RobotoCondensed/RobotoCondensed_Regular.fnt"
-   "Font Size" 14
-   Align 1
   }
  }
 }

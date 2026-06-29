@@ -109,11 +109,26 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 	//! Posicoes dos pontos no cliente (recebidas via RpcDo_RegisterPoint).
 	protected ref map<string, vector> m_mClientPointPositions;
 
+	//! Tipos dos pontos no cliente.
+	protected ref map<string, SPT_EWarfarePointType> m_mClientPointTypes;
+
+	//! Flags de HQ dos pontos no cliente.
+	protected ref map<string, bool> m_mClientPointHQ;
+
+	//! Manpower de guarnicao mais recente por ponto.
+	protected ref map<string, int> m_mClientPointManpower;
+
+	//! Indice de onda mais recente por ponto.
+	protected ref map<string, int> m_mClientPointWaveIndices;
+
 	//! Ordem estavel dos IDs no cliente.
 	protected ref array<string> m_aClientPointOrder;
 
 	//! Flag para evitar notificacao de vitoria duplicada.
 	protected bool m_bClientVictoryNotified;
+
+	//! Renderer com ownership forte durante toda a vida do componente.
+	protected ref SPT_WarfareMapRenderer m_MapRenderer;
 
 	//-----------------------------------------------------------------------
 	// SINGLETON
@@ -135,13 +150,14 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 		if (SCR_Global.IsEditMode())
 			return;
 
-		// Inicializa estruturas do cliente
-		m_mClientPointStates = new map<string, SPT_EWarfarePointState>();
-		m_mClientPointNames = new map<string, string>();
-		m_mClientPointPositions = new map<string, vector>();
-		m_aClientPointOrder = new array<string>();
+		InitializeClientCollections();
 
 		s_Instance = this;
+
+		// O renderer escuta apenas eventos locais de mapa. Em servidor dedicado
+		// esses eventos nao sao emitidos e nenhum widget e criado.
+		m_MapRenderer = new SPT_WarfareMapRenderer();
+		m_MapRenderer.Init(this);
 
 		// Servidor: inicializacao normal
 		if (!Replication.IsServer())
@@ -157,6 +173,51 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 
 		Print("[SPT_Warfare] Inicializando componente de GameMode...");
 		GetGame().GetCallqueue().CallLater(InitializeWarfare, 2000, false);
+	}
+
+	void ~SPT_WarfareGameModeComponent()
+	{
+		if (m_MapRenderer)
+		{
+			m_MapRenderer.Shutdown();
+			m_MapRenderer = null;
+		}
+
+		if (s_Instance == this)
+			s_Instance = null;
+	}
+
+	protected void InitializeClientCollections()
+	{
+		m_mClientPointStates = new map<string, SPT_EWarfarePointState>();
+		m_mClientPointNames = new map<string, string>();
+		m_mClientPointPositions = new map<string, vector>();
+		m_mClientPointTypes = new map<string, SPT_EWarfarePointType>();
+		m_mClientPointHQ = new map<string, bool>();
+		m_mClientPointManpower = new map<string, int>();
+		m_mClientPointWaveIndices = new map<string, int>();
+		m_aClientPointOrder = new array<string>();
+	}
+
+	//! Ativa frames somente enquanto o mapa tatico esta aberto.
+	void SetMapRenderingActive(bool active)
+	{
+		IEntity owner = GetOwner();
+		if (!owner)
+			return;
+
+		if (active)
+			SetEventMask(owner, EntityEvent.FRAME);
+		else
+			ClearEventMask(owner, EntityEvent.FRAME);
+	}
+
+	override void EOnFrame(IEntity owner, float timeSlice)
+	{
+		super.EOnFrame(owner, timeSlice);
+
+		if (m_MapRenderer)
+			m_MapRenderer.Update(timeSlice);
 	}
 
 	//-----------------------------------------------------------------------
@@ -1138,7 +1199,11 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 
 	int GetTotalPointCount()
 	{
-		return m_aPointOrder.Count();
+		if (Replication.IsServer() && m_aPointOrder)
+			return m_aPointOrder.Count();
+		if (m_aClientPointOrder)
+			return m_aClientPointOrder.Count();
+		return 0;
 	}
 
 	string GetPointDisplayName(string pointId)
@@ -1186,13 +1251,80 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 	void GetClientPointIds(notnull array<string> outIds)
 	{
 		outIds.Clear();
+		if (!m_aClientPointOrder)
+			return;
+
 		foreach (string pointId : m_aClientPointOrder)
 			outIds.Insert(pointId);
+	}
+
+	//! Retorna todos os dados necessarios para renderizar um ponto no mapa.
+	bool GetClientPointMapData(string pointId, out string outName, out vector outPosition,
+		out SPT_EWarfarePointType outType, out SPT_EWarfarePointState outState,
+		out bool outIsHQ, out int outManpower, out int outWaveIndex)
+	{
+		outName = pointId;
+		outPosition = vector.Zero;
+		outType = SPT_EWarfarePointType.CUSTOM;
+		outState = SPT_EWarfarePointState.LOCKED;
+		outIsHQ = false;
+		outManpower = 0;
+		outWaveIndex = -1;
+
+		if (!m_mClientPointPositions || !m_mClientPointPositions.Contains(pointId))
+			return false;
+
+		outPosition = m_mClientPointPositions.Get(pointId);
+
+		if (m_mClientPointNames && m_mClientPointNames.Contains(pointId))
+		{
+			string displayName = m_mClientPointNames.Get(pointId);
+			if (!displayName.IsEmpty())
+				outName = displayName;
+		}
+
+		if (m_mClientPointTypes && m_mClientPointTypes.Contains(pointId))
+			outType = m_mClientPointTypes.Get(pointId);
+		if (m_mClientPointStates && m_mClientPointStates.Contains(pointId))
+			outState = m_mClientPointStates.Get(pointId);
+		if (m_mClientPointHQ && m_mClientPointHQ.Contains(pointId))
+			outIsHQ = m_mClientPointHQ.Get(pointId);
+		if (m_mClientPointManpower && m_mClientPointManpower.Contains(pointId))
+			outManpower = m_mClientPointManpower.Get(pointId);
+		if (m_mClientPointWaveIndices && m_mClientPointWaveIndices.Contains(pointId))
+			outWaveIndex = m_mClientPointWaveIndices.Get(pointId);
+
+		return true;
 	}
 
 	//-----------------------------------------------------------------------
 	// REPLICACAO DE ESTADO
 	//-----------------------------------------------------------------------
+
+	protected void GetPointCombatInfo(SPT_WarfarePointData data, out int manpower, out int waveIndex)
+	{
+		manpower = 0;
+		waveIndex = -1;
+		if (!data || data.m_sGarrisonLocationId.IsEmpty())
+			return;
+
+		SPT_WorldGarrisonManagerComponent garrisonMgr = SPT_WorldGarrisonManagerComponent.GetInstance();
+		if (!garrisonMgr)
+			return;
+
+		vector center;
+		string name;
+		int descriptorType;
+		int targetManpower;
+		int pendingSpawns;
+		bool cleared;
+		int budget;
+		bool battleActive;
+		int waveCount;
+		garrisonMgr.GetLocationState(data.m_sGarrisonLocationId, center, name, descriptorType,
+			manpower, targetManpower, pendingSpawns, cleared, budget,
+			battleActive, waveIndex, waveCount);
+	}
 
 	//! Envia o estado completo de todos os pontos para clientes (JIP / inicial).
 	void BroadcastFullState()
@@ -1222,8 +1354,11 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 				Rpc(RpcDo_RegisterPoint, pointId, name, typeRaw, data.m_vCenter[0], data.m_vCenter[2], isHQ);
 			}
 
-			RpcDo_PointStateChanged(pointId, stateRaw, capturedRaw, 0, -1);
-			Rpc(RpcDo_PointStateChanged, pointId, stateRaw, capturedRaw, 0, -1);
+			int manpower;
+			int waveIndex;
+			GetPointCombatInfo(data, manpower, waveIndex);
+			RpcDo_PointStateChanged(pointId, stateRaw, capturedRaw, manpower, waveIndex);
+			Rpc(RpcDo_PointStateChanged, pointId, stateRaw, capturedRaw, manpower, waveIndex);
 		}
 	}
 
@@ -1249,12 +1384,116 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 		m_aPendingStateUpdates.Clear();
 	}
 
+	//! Snapshot completo para jogadores que entram depois da inicializacao.
+	override bool RplSave(ScriptBitWriter writer)
+	{
+		int count = 0;
+		if (m_aPointOrder)
+			count = m_aPointOrder.Count();
+
+		writer.WriteInt(count);
+		if (count == 0)
+			return true;
+
+		foreach (string pointId : m_aPointOrder)
+		{
+			SPT_WarfarePointData data = m_mPointsById.Get(pointId);
+			if (!data)
+			{
+				writer.WriteString(pointId);
+				writer.WriteString(pointId);
+				writer.WriteInt(SPT_EWarfarePointType.CUSTOM);
+				writer.WriteFloat(0.0);
+				writer.WriteFloat(0.0);
+				writer.WriteInt(0);
+				writer.WriteInt(SPT_EWarfarePointState.LOCKED);
+				writer.WriteInt(0);
+				writer.WriteInt(0);
+				writer.WriteInt(-1);
+				continue;
+			}
+
+			int isHQ = 0;
+			if (data.m_bIsHQ)
+				isHQ = 1;
+
+			int captured = 0;
+			if (IsPointCaptured(pointId))
+				captured = 1;
+
+			int manpower;
+			int waveIndex;
+			GetPointCombatInfo(data, manpower, waveIndex);
+
+			writer.WriteString(pointId);
+			writer.WriteString(data.m_sDisplayName);
+			writer.WriteInt(data.m_ePointType);
+			writer.WriteFloat(data.m_vCenter[0]);
+			writer.WriteFloat(data.m_vCenter[2]);
+			writer.WriteInt(isHQ);
+			writer.WriteInt(GetPointState(pointId));
+			writer.WriteInt(captured);
+			writer.WriteInt(manpower);
+			writer.WriteInt(waveIndex);
+		}
+
+		return true;
+	}
+
+	override bool RplLoad(ScriptBitReader reader)
+	{
+		InitializeClientCollections();
+
+		int count;
+		reader.ReadInt(count);
+		for (int i = 0; i < count; i++)
+		{
+			string pointId;
+			string displayName;
+			int typeRaw;
+			float positionX;
+			float positionZ;
+			int isHQ;
+			int stateRaw;
+			int captured;
+			int manpower;
+			int waveIndex;
+
+			reader.ReadString(pointId);
+			reader.ReadString(displayName);
+			reader.ReadInt(typeRaw);
+			reader.ReadFloat(positionX);
+			reader.ReadFloat(positionZ);
+			reader.ReadInt(isHQ);
+			reader.ReadInt(stateRaw);
+			reader.ReadInt(captured);
+			reader.ReadInt(manpower);
+			reader.ReadInt(waveIndex);
+
+			m_aClientPointOrder.Insert(pointId);
+			m_mClientPointNames.Set(pointId, displayName);
+			m_mClientPointPositions.Set(pointId, Vector(positionX, 0, positionZ));
+			m_mClientPointTypes.Set(pointId, typeRaw);
+			m_mClientPointHQ.Set(pointId, isHQ != 0);
+			m_mClientPointStates.Set(pointId, stateRaw);
+			m_mClientPointManpower.Set(pointId, manpower);
+			m_mClientPointWaveIndices.Set(pointId, waveIndex);
+		}
+
+		return true;
+	}
+
 	//! RPC de registro do ponto (nome, posicao, tipo) - enviado no estado inicial.
 	[RplRpc(RplChannel.Reliable, RplRcver.Broadcast)]
 	protected void RpcDo_RegisterPoint(string pointId, string name, int typeRaw, float posX, float posZ, int isHQ)
 	{
+		if (!m_aClientPointOrder)
+			InitializeClientCollections();
+
 		m_mClientPointNames.Set(pointId, name);
 		m_mClientPointPositions.Set(pointId, Vector(posX, 0, posZ));
+		m_mClientPointTypes.Set(pointId, typeRaw);
+		m_mClientPointHQ.Set(pointId, isHQ != 0);
 		if (m_aClientPointOrder.Find(pointId) < 0)
 			m_aClientPointOrder.Insert(pointId);
 	}
@@ -1264,6 +1503,9 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 	[RplRpc(RplChannel.Reliable, RplRcver.Broadcast)]
 	protected void RpcDo_PointStateChanged(string pointId, int stateRaw, int capturedRaw, int manpower, int waveIndex)
 	{
+		if (!m_aClientPointOrder)
+			InitializeClientCollections();
+
 		SPT_EWarfarePointState newState = stateRaw;
 
 		// Obtem estado anterior para detectar transicao
@@ -1273,6 +1515,8 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 
 		// Atualiza estado local
 		m_mClientPointStates.Set(pointId, newState);
+		m_mClientPointManpower.Set(pointId, manpower);
+		m_mClientPointWaveIndices.Set(pointId, waveIndex);
 
 		// Notifica transicao se houve mudanca
 		if (newState != oldState && m_bEnableHUD)
