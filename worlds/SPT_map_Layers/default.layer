@@ -1,3 +1,8 @@
-GenericEntity : "{CCC00D009D4949B0}Prefabs/Weapons/Explosives/Mine_TM62M/Mine_TM62M_base.et" {
- coords 1372.221 36.517 2381.282
+$grp GenericEntity : "{CCC00D009D4949B0}Prefabs/Weapons/Explosives/Mine_TM62M/Mine_TM62M_base.et" {
+ Mine_TM62M_base_69B91BBBDC3D1630 {
+  coords 1372.221 36.517 2381.282
+ }
+ Mine_TM62M_base_69BA1901389CCF3B {
+  coords 3157.098 11.563 2806.64
+ }
 }
