@@ -12,7 +12,8 @@ Este documento substitui a lista antiga de fases. O foco atual e manter o modo W
 | Budget por localizacao | Implementado |
 | Spawn assincrono | Implementado |
 | Batalhas/ondas explicitas | Implementado |
-| Warfare territorial | Implementado com `SPT_WarfarePoint` manual |
+| Warfare territorial | Implementado com HQ aliado e objetivos inimigos dedicados |
+| Config por area | Implementado exclusivamente no `SPT_WarfarePoint`, sem fallback global |
 | Mapa tatico Warfare | Implementado no mapa nativo |
 | Preview no editor | Implementado no GameMode selecionado |
 | Persistencia entre reinicios | Pendente |
@@ -20,19 +21,20 @@ Este documento substitui a lista antiga de fases. O foco atual e manter o modo W
 
 ## Prioridade 1 — estabilizar configuracao manual Warfare
 
-Objetivo: garantir que qualquer mapa configurado com `SPT_WarfarePoint` funcione sem depender de descritores automaticos.
+Objetivo: garantir que mapas com `SPT_WarfareHQ` e `SPT_WarfarePoint` funcionem sem descritores automaticos.
 
 Tarefas:
 
 - validar compile limpo no Workbench;
-- confirmar que pontos antigos foram recriados/reconfigurados com `Capture Order`;
+- confirmar que HQs usam o prefab dedicado e inimigos usam ordem `1+`;
+- validar configuracoes por area: distancias, prefabs, cache, budget, reforcos e comboios;
 - confirmar que a layer salva contem todos os pontos;
 - melhorar mensagens de erro no preview;
 - adicionar guia de setup no editor.
 
 Critérios de aceite:
 
-- HQ ordem `0` sempre SAFE;
+- HQ nunca e registrado como localizacao hostil;
 - ordem `1` sempre vira frente inicial;
 - ordem `2+` so libera quando a ordem anterior inteira foi capturada;
 - mapa tatico mostra todos os pontos;
@@ -45,6 +47,7 @@ Tarefas:
 - mostrar motivo do erro no preview, nao apenas cor magenta;
 - logar resumo da sequencia de captura encontrada;
 - logar pontos por ordem;
+- logar configuracao efetiva por area;
 - criar comando/API de dump do estado Warfare;
 - revisar atributos orfaos ou duplicados no GameMode.
 

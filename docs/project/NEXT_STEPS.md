@@ -6,11 +6,15 @@ Este documento lista o que ainda faz sentido depois da mudanca para pontos Warfa
 
 ## Concluido / implementado
 
-- Objetivos Warfare sao criados somente por `Prefabs/Warfare/SPT_WarfarePoint.et`.
+- HQs aliados usam `Prefabs/Warfare/SPT_WarfareHQ.et`.
+- Objetivos inimigos usam `Prefabs/Warfare/SPT_WarfarePoint.et`.
 - `Capture Order` substitui vizinhos manuais e descoberta automatica.
-- `Capture Order = 0` define HQ SAFE.
-- O Warfare registra localizacoes de guarnicao manuais no centro de cada ponto.
-- HQ SAFE nao spawna CQB, patrulha ou batalha.
+- HQs sao ordem territorial `0` por tipo e podem existir em varios locais.
+- O Warfare registra localizacoes de guarnicao somente para objetivos inimigos.
+- HQ nao possui configuracao nem localizacao hostil.
+- `SPT_WarfarePoint` configura streaming, cache, prefabs, budget e reforcos por area.
+- Nao existem fallbacks globais de gameplay de area no `WorldGarrisonManager`.
+- Veiculos de comboio tambem sao configurados por `SPT_WarfarePoint`.
 - Preview do grafo aparece ao selecionar o GameMode no World Editor.
 - Icones aparecem no mapa tatico nativo usando `SCR_MapEntity.WorldToScreen()`.
 - Snapshot JIP usa `RplSave`/`RplLoad`.
@@ -23,7 +27,7 @@ Este documento lista o que ainda faz sentido depois da mudanca para pontos Warfa
 Objetivo:
 
 - confirmar que a remocao do fluxo automatico nao deixou referencias quebradas;
-- validar que pontos antigos no editor precisam ser recriados ou reconfigurados com o novo atributo `Capture Order`.
+- validar que nenhum `SPT_WarfarePoint` inimigo usa `Capture Order < 1`.
 
 Checklist:
 
@@ -32,13 +36,14 @@ Checklist:
 - verificar preview;
 - salvar layer com os pontos;
 - rodar Play Mode;
-- confirmar logs de registro manual.
+- confirmar logs de registro manual e configuracao efetiva por area.
 
 Logs esperados:
 
 ```text
-[SPT_WorldGarrison] Descoberta por descritores desativada; aguardando SPT_WarfarePoint manuais.
+[SPT_WorldGarrison] Descoberta automatica desativada; aguardando configuracoes dos SPT_WarfarePoint.
 [SPT_WorldGarrison] Localizacao Warfare manual registrada | id=...
+[SPT_WorldGarrison] Config local | id=...
 [SPT_Warfare] Inicializacao concluida
 ```
 
@@ -60,7 +65,7 @@ Erros importantes:
 
 - ID vazio;
 - ID duplicado;
-- ordem negativa;
+- objetivo inimigo com ordem menor que `1`;
 - ausencia de HQ;
 - lacuna de ordem;
 - ponto sem localizacao registrada.
@@ -69,7 +74,7 @@ Erros importantes:
 
 Criar um guia curto com:
 
-- como adicionar `SPT_WarfarePoint.et`;
+- como adicionar `SPT_WarfareHQ.et` e `SPT_WarfarePoint.et`;
 - como preencher ID;
 - como definir ordem;
 - como configurar HQ;
@@ -78,13 +83,16 @@ Criar um guia curto com:
 
 Pode ficar em um novo documento `docs/project/WARFARE_EDITOR_SETUP.md`.
 
-### 4. Remover atributos/conceitos orfaos
+### 4. Criar presets opcionais de area
 
-Revisar se ainda existem atributos sem uso no `SPT_WarfareGameModeComponent`, por exemplo:
+Agora cada `SPT_WarfarePoint` possui muitos atributos de guarnicao. Para mapas maiores, presets podem reduzir repeticao:
 
-- `m_sMapIconConfigPath`, caso nao seja usado ainda;
-- duplicidade conceitual entre habilitadores de HUD/notificacao;
-- qualquer referencia restante a descoberta automatica nos assets/layers.
+- vila pequena;
+- cidade media;
+- base militar;
+- aeroporto;
+- area leve sem reforco;
+- area pesada com reforco/convoy.
 
 ## Prioridade media
 
@@ -114,6 +122,9 @@ Hoje o sistema informa transicoes importantes, mas ainda pode melhorar:
 - aviso de nova onda agendada;
 - aviso de batalha encerrada;
 - evitar duplicidade em JIP.
+
+Como os delays agora podem variar por area, o tooltip/notificacao deve mostrar
+o ETA real da localizacao quando essa informacao estiver disponivel.
 
 ### 8. Configuracao visual dos icones
 

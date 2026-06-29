@@ -2,15 +2,17 @@
 
 Data de referencia: 2026-06-29.
 
-Este documento descreve o estado atual do sistema Warfare depois da mudanca para configuracao 100% manual por `SPT_WarfarePoint`.
+Este documento descreve o sistema Warfare manual com HQs aliados dedicados e
+objetivos inimigos configurados por `SPT_WarfarePoint`.
 
 ## Decisao atual
 
 O Warfare nao cria mais pontos automaticamente a partir de descritores do mapa.
 
-Todo objetivo precisa ser colocado no World Editor usando:
+Toda missao precisa usar os dois tipos de prefab:
 
 ```text
+Prefabs/Warfare/SPT_WarfareHQ.et
 Prefabs/Warfare/SPT_WarfarePoint.et
 ```
 
@@ -23,20 +25,22 @@ Nao existem mais:
 - lista manual de vizinhos por string;
 - IDs instaveis do tipo `MANUAL_n`.
 
-O World Garrison ainda mantem suporte interno a descritores para uso isolado, mas quando o `SPT_WarfareGameModeComponent` existe no GameMode, a descoberta por descritores fica desativada para o fluxo Warfare.
+O World Garrison nao executa descoberta por descritores; ele aguarda o registro
+manual dos objetivos inimigos pelo Warfare.
 
 Log esperado:
 
 ```text
-[SPT_WorldGarrison] Descoberta por descritores desativada; aguardando SPT_WarfarePoint manuais.
+[SPT_WorldGarrison] Descoberta automatica desativada; aguardando configuracoes dos SPT_WarfarePoint.
 ```
 
 ## Componentes principais
 
 | Arquivo | Responsabilidade |
 |---|---|
-| `Prefabs/Warfare/SPT_WarfarePoint.et` | Prefab colocavel no World Editor para cada objetivo Warfare |
-| `Scripts/Game/Components/SPT_WarfarePointComponent.c` | Atributos do ponto: ID, nome, tipo, raio, ordem de captura e vitoria |
+| `Prefabs/Warfare/SPT_WarfareHQ.et` | HQ aliado, sem atributos ou localizacao de guarnicao hostil |
+| `Prefabs/Warfare/SPT_WarfarePoint.et` | Objetivo inimigo com configuracao completa de guarnicao |
+| `SPT_WarfareNodeComponent` | Dados territoriais compartilhados: ID, nome, tipo e raio |
 | `Scripts/Game/GameMode/SPT_WarfareGameModeComponent.c` | Autoridade do Warfare, validacao, estados, captura, preview, RPC e JIP |
 | `Scripts/Game/GameMode/SPT_WarfareTypes.c` | Enums, dados e snapshots Warfare |
 | `Scripts/Game/GameMode/SPT_WorldGarrisonManagerComponent.c` | Streaming, guarnicoes, batalhas, SAFE e localizacoes manuais do Warfare |
@@ -44,14 +48,15 @@ Log esperado:
 
 ## Configuracao de pontos
 
-Cada `SPT_WarfarePoint` deve ter:
+Cada HQ e objetivo inimigo possui ID, nome, tipo visual e raio. Somente
+`SPT_WarfarePoint` possui:
 
-- `Point ID`: obrigatorio, estavel e unico;
-- `Display Name`: opcional; se vazio, o ID e usado;
-- `Point Type`: tipo visual/logico do objetivo;
-- `Radius`: raio de ataque/captura;
-- `Capture Order`: ordem numerica da progressao;
+- `Capture Order`: obrigatoriamente `1` ou maior;
 - `Counts For Victory`: se entra na condicao de vitoria.
+- configuracao de guarnicao, streaming, cache, prefabs e reforcos por area.
+
+`SPT_WarfareHQ` e sempre aliado, capturado, ordem territorial `0` e nao conta
+para a condicao de vitoria. Varios HQs sao permitidos.
 
 ### Ordem de captura
 
@@ -59,15 +64,15 @@ A progressao territorial e derivada somente do atributo `Capture Order`.
 
 | Ordem | Significado |
 |---|---|
-| `0` | HQ inicial do jogador; sempre SAFE e ja capturada |
+| `0` | Reservada internamente aos prefabs `SPT_WarfareHQ` |
 | `1` | Primeira etapa inimiga atacavel |
 | `2` | Segunda etapa; libera quando todos os pontos de ordem `1` forem capturados |
 | `3+` | Etapas seguintes, seguindo a mesma regra |
 
 Regras:
 
-- precisa existir pelo menos um ponto de ordem `0`;
-- ordens negativas sao invalidas;
+- precisa existir pelo menos um `SPT_WarfareHQ`;
+- objetivos inimigos com ordem menor que `1` sao invalidos;
 - a sequencia precisa comecar em `0`;
 - nao pode haver lacunas entre ordens;
 - pontos com a mesma ordem sao objetivos paralelos;
@@ -76,7 +81,7 @@ Regras:
 Exemplo:
 
 ```text
-SPT_WarfarePoint_HQ       Capture Order = 0
+SPT_WarfareHQ_Base
 SPT_WarfarePoint_Vila_A   Capture Order = 1
 SPT_WarfarePoint_Vila_B   Capture Order = 1
 SPT_WarfarePoint_Base_C   Capture Order = 2
@@ -94,27 +99,69 @@ O grafo e construido automaticamente pelo GameMode:
 
 Isso simplifica a configuracao no editor e reduz erro humano. A ordem numerica passa a ser a fonte unica da progressao.
 
-## HQ SAFE
+A ordem de captura nao bloqueia streaming fisico. Um ponto `LOCKED` ainda pode
+spawnar guarnicao se o jogador chegar dentro da distancia de spawn configurada
+para aquela area. A ordem controla captura/frente, nao presenca de IA.
 
-Todo ponto com `Capture Order = 0` e tratado como HQ.
+## Configuracao de guarnicao por ponto
 
-Durante a inicializacao, o Warfare registra uma localizacao de guarnicao manual para cada ponto e marca as localizacoes de HQ como SAFE antes do primeiro ciclo de streaming.
+Cada `SPT_WarfarePoint` e a fonte unica da configuracao gameplay da propria
+area. O `SPT_WorldGarrisonManagerComponent` apenas executa streaming, cache,
+spawn e batalha; ele nao fornece defaults globais de area.
 
-Uma localizacao SAFE:
+Os atributos do prefab possuem valores iniciais concretos. Valores invalidos
+sao normalizados localmente durante o uso (por exemplo, despawn deve ser maior
+que spawn), nunca herdados do manager.
 
-- nao spawna CQB;
-- nao spawna patrulha;
-- nao entra em monitoramento de baixa;
-- nao inicia batalha;
-- cancela filas e batalhas pendentes;
-- remove grupos ativos e cacheados;
-- nao emite eventos de captura.
+Configuracoes por area:
 
-Isso evita o problema anterior em que a area inicial do jogador acionava CQB, patrulha ou reforcos inimigos.
+- distancia de spawn/despawn e histerese;
+- raio de busca de construcoes CQB;
+- raio de patrulha;
+- budget da localizacao;
+- cache ligado/desligado;
+- intervalo de spawn assincrono;
+- prefabs CQB e patrol;
+- waypoint, formacao e movimento de patrulha;
+- batalha ligada/desligada;
+- delays e tamanho das ondas;
+- threshold de sobreviventes para antecipar onda;
+- distancia min/max de spawn dos reforcos;
+- pesos das estrategias `CONCENTRATED`, `SPREADED` e `CONVOY`;
+- prefabs especificos de reforco;
+- veiculos e tripulacoes de comboio.
+
+Fallback de prefabs de reforco:
+
+1. usa `Battle Group Prefabs` do ponto;
+2. se vazio, usa `Patrol Group Prefabs` do ponto;
+3. se ambos estiverem vazios, a area nao gera reforcos de infantaria.
+
+Listas CQB e patrol vazias desativam somente aquele tipo de presenca na area.
+Cache e batalha sao flags booleanas do proprio ponto.
+
+O prefab base inclui um preset de teste dificil e imediatamente jogavel:
+
+- streaming em `1200/1600 m`, cache ativo e budget `100`;
+- tres grupos vanilla para CQB, patrol e reforcos;
+- patrulhas em coluna e `WALK`;
+- reforcos em `RUN`, ondas agendadas sem delay e grupos materializados a cada `1000 ms`;
+- comboio vanilla configurado e peso `0.4` para a estrategia `CONVOY`.
+
+Esses valores sao apenas o ponto de partida. Cada instancia deve ser ajustada
+pela missao quando precisar de composicao, dificuldade ou faccao diferente.
+
+## HQ aliado
+
+O HQ nao e registrado no `SPT_WorldGarrisonManagerComponent`. Portanto nao
+possui CQB, patrulha, cache, budget, batalha ou reforcos e e seguro por
+construcao. O componente dedicado fica preparado para recursos futuros de HQ,
+como respawn, arsenal e economia, sem misturar configuracao inimiga.
 
 ## Guarnicoes manuais
 
-Cada ponto Warfare cria sua propria localizacao de guarnicao no centro do ponto.
+Cada objetivo inimigo cria sua propria localizacao de guarnicao no centro. HQs
+nao criam localizacao de guarnicao.
 
 O ID da localizacao de guarnicao e o mesmo `Point ID` do Warfare. Por isso, o ponto nao depende mais de:
 
@@ -125,13 +172,12 @@ O ID da localizacao de guarnicao e o mesmo `Point ID` do Warfare. Por isso, o po
 
 Fluxo de inicializacao no servidor:
 
-1. coletar todos os `SPT_WarfarePointComponent`;
+1. coletar `SPT_WarfareHQComponent` e `SPT_WarfarePointComponent`;
 2. validar IDs e ordens;
 3. construir grafo por ordem de captura;
-4. registrar localizacoes manuais no `SPT_WorldGarrisonManagerComponent`;
-5. marcar HQs como SAFE;
-6. calcular frente inicial;
-7. replicar snapshot para clientes.
+4. registrar somente objetivos inimigos no `SPT_WorldGarrisonManagerComponent`;
+5. calcular frente inicial;
+6. replicar snapshot para clientes.
 
 Logs esperados para pontos validos:
 
@@ -215,8 +261,8 @@ Erros que bloqueiam a inicializacao Warfare:
 - nenhum ponto manual encontrado;
 - ID vazio;
 - ID duplicado;
-- ordem negativa;
-- ausencia de HQ (`Capture Order = 0`);
+- objetivo inimigo com ordem menor que `1`;
+- ausencia de `SPT_WarfareHQ`;
 - lacuna na sequencia de ordens;
 - falha ao registrar localizacao manual de guarnicao.
 
@@ -227,9 +273,9 @@ Avisos esperados:
 
 ## Como configurar no editor
 
-1. Coloque um `SPT_WarfarePoint.et` para o HQ do jogador.
-2. Configure ID unico e `Capture Order = 0`.
-3. Coloque os pontos inimigos.
+1. Coloque um `SPT_WarfareHQ.et` e configure um ID unico.
+2. Adicione outros HQs se a missao tiver varias origens aliadas.
+3. Coloque os `SPT_WarfarePoint.et` inimigos.
 4. Configure IDs unicos e ordens `1`, `2`, `3` etc.
 5. Selecione o GameMode para visualizar o grafo.
 6. Corrija pontos magenta ou lacunas de ordem.
@@ -252,8 +298,9 @@ Avisos esperados:
 ### Runtime local
 
 - log mostra descoberta por descritores desativada;
-- log registra cada localizacao manual Warfare;
-- HQ nao spawna CQB/patrulha/batalha;
+- log registra uma localizacao somente para cada objetivo inimigo;
+- log imprime configuracao efetiva por localizacao;
+- HQ nao aparece nos logs do gerenciador de guarnicao;
 - ponto de ordem `1` spawna inimigos ao aproximar;
 - primeira baixa muda para `UNDER_ATTACK`;
 - eliminar a guarnicao muda para `CLEARED_WAITING` ou captura;

@@ -105,9 +105,11 @@ Ao passar o mouse sobre um icone, o tooltip mostra:
 
 O mapa apenas apresenta o estado calculado pelo Warfare.
 
-A ordem de captura nao e configurada no mapa. Ela vem do atributo `Capture Order` de cada `SPT_WarfarePoint`:
+A ordem de captura nao e configurada no mapa. HQs dedicados representam a
+ordem `0`; objetivos `SPT_WarfarePoint` usam o atributo `Capture Order` a partir
+de `1`:
 
-- `0`: HQ SAFE, ja capturada;
+- `0`: `SPT_WarfareHQ` aliado, ja capturado e sem guarnicao hostil;
 - `1`: primeira frente;
 - `2+`: etapas seguintes.
 
