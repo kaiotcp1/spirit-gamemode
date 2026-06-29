@@ -276,8 +276,7 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 
 	protected bool CollectEditorManualPoint(IEntity entity)
 	{
-		SPT_WarfarePointComponent comp = SPT_WarfarePointComponent.Cast(
-			entity.FindComponent(SPT_WarfarePointComponent));
+		SPT_WarfareNodeComponent comp = FindWarfareNodeComponent(entity);
 		if (!comp)
 			return true;
 
@@ -319,8 +318,7 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 		foreach (SPT_WarfarePointData point : m_aEditorPreviewPoints)
 		{
 			point.m_aNeighborIds.Clear();
-			point.m_bIsHQ = point.m_iCaptureOrder == 0;
-			if (point.m_iCaptureOrder < 0)
+			if (!point.m_bIsHQ && point.m_iCaptureOrder < 1)
 				point.m_bPreviewInvalid = true;
 		}
 
@@ -509,14 +507,6 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 			return;
 		}
 
-		// 5.6 Todo HQ e uma zona segura antes de iniciar monitoramento/spawns Warfare.
-		ApplyHQSafeLocations();
-		if (m_bManualConfigurationInvalid)
-		{
-			Print("[SPT_Warfare] ERRO: Nao foi possivel aplicar SAFE aos HQs. Warfare desabilitado.", LogLevel.ERROR);
-			return;
-		}
-
 		// 6. Subscreve aos eventos da guarnicao
 		SubscribeToGarrisonEvents();
 
@@ -561,15 +551,13 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 		if (!entity)
 			return false;
 
-		SPT_WarfarePointComponent comp = SPT_WarfarePointComponent.Cast(
-			entity.FindComponent(SPT_WarfarePointComponent));
+		SPT_WarfareNodeComponent comp = FindWarfareNodeComponent(entity);
 		return comp != null;
 	}
 
 	protected bool CollectManualPoint(IEntity entity)
 	{
-		SPT_WarfarePointComponent comp = SPT_WarfarePointComponent.Cast(
-			entity.FindComponent(SPT_WarfarePointComponent));
+		SPT_WarfareNodeComponent comp = FindWarfareNodeComponent(entity);
 		if (!comp)
 			return true;
 
@@ -577,7 +565,21 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 		return true;
 	}
 
-	protected void RegisterManualPoint(SPT_WarfarePointComponent comp, IEntity entity)
+	protected SPT_WarfareNodeComponent FindWarfareNodeComponent(IEntity entity)
+	{
+		if (!entity)
+			return null;
+
+		SPT_WarfareHQComponent hq = SPT_WarfareHQComponent.Cast(
+			entity.FindComponent(SPT_WarfareHQComponent));
+		if (hq)
+			return hq;
+
+		return SPT_WarfarePointComponent.Cast(
+			entity.FindComponent(SPT_WarfarePointComponent));
+	}
+
+	protected void RegisterManualPoint(SPT_WarfareNodeComponent comp, IEntity entity)
 	{
 		string pointId = comp.GetPointId().Trim();
 		if (pointId.IsEmpty())
@@ -606,7 +608,20 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 		data.m_iCaptureOrder = comp.GetCaptureOrder();
 		data.m_bIsHQ = comp.IsHQ();
 		data.m_bCountsForVictory = comp.CountsForVictory();
-		data.m_sGarrisonLocationId = pointId;
+		if (!data.m_bIsHQ)
+		{
+			SPT_WarfarePointComponent hostilePoint = SPT_WarfarePointComponent.Cast(comp);
+			if (!hostilePoint)
+			{
+				Print(string.Format("[SPT_Warfare] ERRO: Objetivo inimigo %1 nao usa SPT_WarfarePointComponent.",
+					pointId), LogLevel.ERROR);
+				m_bManualConfigurationInvalid = true;
+				return;
+			}
+
+			data.m_sGarrisonLocationId = pointId;
+			data.m_GarrisonConfig = hostilePoint.CreateGarrisonConfig();
+		}
 
 		m_mPointsById.Set(pointId, data);
 		m_aPointOrder.Insert(pointId);
@@ -625,10 +640,9 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 			if (!point)
 				continue;
 			point.m_aNeighborIds.Clear();
-			point.m_bIsHQ = point.m_iCaptureOrder == 0;
-			if (point.m_iCaptureOrder < 0)
+			if (!point.m_bIsHQ && point.m_iCaptureOrder < 1)
 			{
-				Print(string.Format("[SPT_Warfare] ERRO: Ordem de captura negativa em %1.",
+				Print(string.Format("[SPT_Warfare] ERRO: Objetivo inimigo %1 deve usar Capture Order igual ou maior que 1.",
 					pointId), LogLevel.ERROR);
 				m_bManualConfigurationInvalid = true;
 			}
@@ -667,8 +681,10 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 			SPT_WarfarePointData point = m_mPointsById.Get(pointId);
 			if (!point)
 				continue;
+			if (point.m_bIsHQ)
+				continue;
 			if (!garrisonMgr.RegisterManualWarfareLocation(
-				pointId, point.m_sDisplayName, point.m_vCenter))
+				pointId, point.m_sDisplayName, point.m_vCenter, point.m_GarrisonConfig))
 			{
 				Print(string.Format("[SPT_Warfare] ERRO: Falha ao registrar guarnicao manual %1.",
 					pointId), LogLevel.ERROR);
@@ -691,7 +707,7 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 		// Verifica HQs
 		if (m_aHQIds.IsEmpty())
 		{
-			Print("[SPT_Warfare] ERRO: Nenhum ponto definido como HQ.", LogLevel.ERROR);
+			Print("[SPT_Warfare] ERRO: Nenhum SPT_WarfareHQ foi colocado na missao.", LogLevel.ERROR);
 			valid = false;
 		}
 
@@ -773,28 +789,6 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 				return true;
 		}
 		return false;
-	}
-
-	//! Garante que HQs nunca recebam guarnicao local nem batalha.
-	protected void ApplyHQSafeLocations()
-	{
-		SPT_WorldGarrisonManagerComponent garrisonMgr = SPT_WorldGarrisonManagerComponent.GetInstance();
-		if (!garrisonMgr)
-			return;
-
-		foreach (string hqId : m_aHQIds)
-		{
-			SPT_WarfarePointData data = m_mPointsById.Get(hqId);
-			if (!data || data.m_sGarrisonLocationId.IsEmpty())
-				continue;
-
-			if (!garrisonMgr.SetLocationSafe(data.m_sGarrisonLocationId, true))
-			{
-				Print(string.Format("[SPT_Warfare] ERRO: Nao foi possivel marcar HQ %1 como SAFE.",
-					hqId), LogLevel.ERROR);
-				m_bManualConfigurationInvalid = true;
-			}
-		}
 	}
 
 	//! BFS simples para verificar se um ponto e alcancavel a partir de qualquer HQ.

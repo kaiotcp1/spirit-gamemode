@@ -89,7 +89,7 @@ class SPT_GarrisonLocation : Managed
 	bool m_bActive;
 	bool m_bSpawning;
 	bool m_bUnavailable;
-	//! Localizacao protegida pelo Warfare (HQ); nunca recebe IA hostil.
+	//! Localizacao protegida por scripts externos; nunca recebe IA hostil.
 	bool m_bSafe;
 	//! Diferencia "nunca sofreu stream-out" de um cache intencionalmente vazio
 	//! apos todos os grupos desta localizacao terem sido eliminados.
@@ -121,6 +121,7 @@ class SPT_GarrisonLocation : Managed
 	//! Usado pelo stream-out (caching) para saber qual prefab e posicao salvar.
 	ref array<ref SPT_GroupSpawnRecord> m_aGroupRecords = new array<ref SPT_GroupSpawnRecord>();
 	ref SPT_LocationBattleState m_Battle = new SPT_LocationBattleState();
+	ref SPT_GarrisonLocationConfig m_Config;
 
 	void SPT_GarrisonLocation(vector center, string name, int descriptorType, string locationId = "")
 	{
@@ -370,101 +371,19 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 	[Attribute("0", desc: "Enable detailed diagnostic logs with the [SPT_WorldGarrison][DEBUG] prefix")]
 	protected bool m_bDebug;
 
-	[Attribute("800", desc: "Spawn or respawn when a player is within this distance (metres)")]
-	protected float m_fSpawnDistance;
-
-	[Attribute("1000", desc: "Despawn after every player is farther than this distance (metres). Must be greater than spawn distance.")]
-	protected float m_fDespawnDistance;
-
-	[Attribute("100", desc: "Extra margin added to the despawn distance for an already-active location, preventing rapid spawn/despawn cycles when a player hovers near the boundary.")]
-	protected float m_fDespawnHysteresis;
-
-	[Attribute("1", desc: "When enabled, groups that are despawned save their survivor state. Returning players will only face the enemies that were still alive, instead of a fresh garrison.")]
-	protected bool m_bEnableCaching;
-
 	[Attribute("2", desc: "Seconds between player-distance checks")]
 	protected float m_fUpdateInterval;
 
 	[Attribute("500", desc: "Game Master AI budget used by the garrison. Increase this when many locations can be active simultaneously. Set to 0 to keep the scenario budget unchanged.")]
 	protected int m_iGameMasterAIBudget;
 
-	[Attribute("50", desc: "Lifetime unit deployment budget for each location. New units consume one point; cached survivors are free to restore. Set to 0 for unlimited reinforcements.")]
-	protected int m_iLocationBudget;
-
-	[Attribute("0", desc: "Intervalo em milissegundos entre cada spawn individual processado pela fila assincrona. 0 = spawn sincrono de todos os grupos no mesmo quadro (legado). Valores tipicos: 50-200ms.")]
-	protected int m_iSpawnIntervalMs;
-
-	[Attribute("30000", desc: "Atraso minimo da primeira onda de uma batalha explicita, em milissegundos.", category: "Batalha")]
-	protected int m_iBattleInitialDelayMinMs;
-
-	[Attribute("90000", desc: "Atraso maximo da primeira onda de uma batalha explicita, em milissegundos.", category: "Batalha")]
-	protected int m_iBattleInitialDelayMaxMs;
-
-	[Attribute("180000", desc: "Intervalo minimo entre ondas, em milissegundos.", category: "Batalha")]
-	protected int m_iBattleWaveDelayMinMs;
-
-	[Attribute("420000", desc: "Intervalo maximo entre ondas, em milissegundos.", category: "Batalha")]
-	protected int m_iBattleWaveDelayMaxMs;
-
-	[Attribute("10", desc: "Quantidade minima de unidades planejada para uma onda.", category: "Batalha")]
-	protected int m_iBattleWaveUnitsMin;
-
-	[Attribute("30", desc: "Quantidade maxima de unidades planejada para uma onda.", category: "Batalha")]
-	protected int m_iBattleWaveUnitsMax;
-
-	[Attribute("0.5", desc: "Proporcao de sobreviventes que antecipa a proxima onda.", category: "Batalha")]
-	protected float m_fBattleWaveAliveThreshold;
-
-	[Attribute("0.3", desc: "Peso da estrategia concentrada.", category: "Batalha")]
-	protected float m_fBattleConcentratedWeight;
-
-	[Attribute("0.4", desc: "Peso da estrategia espalhada.", category: "Batalha")]
-	protected float m_fBattleSpreadedWeight;
-
-	[Attribute("0.3", desc: "Peso da estrategia de comboio.", category: "Batalha")]
-	protected float m_fBattleConvoyWeight;
-
-	[Attribute("300", desc: "Distancia minima de deployment das ondas.", category: "Batalha")]
-	protected float m_fBattleSpawnDistanceMin;
-
-	[Attribute("900", desc: "Distancia maxima de deployment das ondas.", category: "Batalha")]
-	protected float m_fBattleSpawnDistanceMax;
-
-	[Attribute("", desc: "Veiculos e respectivos grupos de tripulacao disponiveis para comboios.", category: "Batalha")]
-	protected ref array<ref SPT_BattleVehicleConfig> m_aBattleVehicles;
-
 	[Attribute("$profile:/SPT_RoadNetwork.json", desc: "Caminho do JSON de rede viaria gerado no Workbench.", category: "Batalha")]
 	protected string m_sRoadNetworkDatasetPath;
 
-	[Attribute("175", desc: "Radius around each map location used to find buildings")]
-	protected float m_fBuildingSearchRadius;
-
-	[Attribute("400", desc: "Patrol radius measured from the center of each city or strategic location")]
-	protected float m_fPatrolRadius;
-
-	[Attribute("75", desc: "Ignore duplicate map descriptors closer than this distance")]
+	//! Mantidos apenas para o codigo legado de descritores, que nao e mais executado.
 	protected float m_fMinimumLocationSpacing;
-
-	[Attribute("1", desc: "Include cities, towns, villages and named settlements")]
 	protected bool m_bIncludeSettlements;
-
-	[Attribute("1", desc: "Include bases and other strategic/military markers")]
 	protected bool m_bIncludeStrategicSites;
-
-	[Attribute("", UIWidgets.ResourceNamePicker, desc: "Groups positioned inside buildings and held at CQB posts such as windows", params: "et class=SCR_AIGroup")]
-	protected ref array<ResourceName> m_aCQBGroupPrefabs;
-
-	[Attribute("", UIWidgets.ResourceNamePicker, desc: "Groups that patrol around the center of each city", params: "et class=SCR_AIGroup")]
-	protected ref array<ResourceName> m_aPatrolGroupPrefabs;
-
-	[Attribute("{FFF9518F73279473}PrefabsEditable/Auto/AI/Waypoints/E_AIWaypoint_Move.et", UIWidgets.ResourceNamePicker, desc: "Move waypoint used for each patrol destination", params: "et")]
-	protected ResourceName m_sPatrolWaypointPrefab;
-
-	[Attribute(SCR_EAIGroupFormation.Wedge.ToString(), UIWidgets.ComboBox, "Formation used by garrison patrol groups", "", ParamEnumArray.FromEnum(SCR_EAIGroupFormation))]
-	protected SCR_EAIGroupFormation m_ePatrolFormation;
-
-	[Attribute(EMovementType.WALK.ToString(), UIWidgets.ComboBox, "Movement pace used while following patrol waypoints", "", ParamEnumArray.FromEnum(EMovementType))]
-	protected EMovementType m_ePatrolMovementType;
 
 	protected ref array<ref SPT_GarrisonLocation> m_aLocations = new array<ref SPT_GarrisonLocation>();
 	protected ref array<ref SPT_GarrisonDescriptorCandidate> m_aDescriptorCandidates = new array<ref SPT_GarrisonDescriptorCandidate>();
@@ -504,8 +423,7 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			SPT_RoadNetworkService.Load(m_sRoadNetworkDatasetPath);
 
 		ValidateSettings();
-		DebugLog(string.Format("Inicializacao agendada em 1000 ms | gruposCQB=%1 | gruposPatrulha=%2",
-			GetCQBGroupPrefabCount(), GetPatrolGroupPrefabCount()));
+		DebugLog("Inicializacao agendada em 1000 ms; configuracoes de area serao lidas exclusivamente dos SPT_WarfarePoint.");
 		if (m_iGameMasterAIBudget > 0)
 			GetGame().GetCallqueue().CallLater(ConfigureGameMasterBudget, 1000, false, 10);
 		GetGame().GetCallqueue().CallLater(InitializeLocations, 1000, false);
@@ -515,49 +433,11 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 
 	protected void ValidateSettings()
 	{
-		if (m_fSpawnDistance < 1)
-			m_fSpawnDistance = 800;
-
-		if (m_fDespawnDistance <= m_fSpawnDistance)
-			m_fDespawnDistance = m_fSpawnDistance + 200;
-
-		if (m_fDespawnHysteresis < 0)
-			m_fDespawnHysteresis = 0;
-
 		if (m_fUpdateInterval < 0.25)
 			m_fUpdateInterval = 0.25;
 
-		if (m_iSpawnIntervalMs < 0)
-			m_iSpawnIntervalMs = 0;
-
-		m_iBattleInitialDelayMinMs = Math.Max(0, m_iBattleInitialDelayMinMs);
-		m_iBattleInitialDelayMaxMs = Math.Max(m_iBattleInitialDelayMinMs, m_iBattleInitialDelayMaxMs);
-		m_iBattleWaveDelayMinMs = Math.Max(1000, m_iBattleWaveDelayMinMs);
-		m_iBattleWaveDelayMaxMs = Math.Max(m_iBattleWaveDelayMinMs, m_iBattleWaveDelayMaxMs);
-		m_iBattleWaveUnitsMin = Math.Max(1, m_iBattleWaveUnitsMin);
-		m_iBattleWaveUnitsMax = Math.Max(m_iBattleWaveUnitsMin, m_iBattleWaveUnitsMax);
-		m_fBattleWaveAliveThreshold = Math.Clamp(m_fBattleWaveAliveThreshold, 0.0, 1.0);
-		m_fBattleSpawnDistanceMin = Math.Max(100.0, m_fBattleSpawnDistanceMin);
-		m_fBattleSpawnDistanceMax = Math.Max(m_fBattleSpawnDistanceMin, m_fBattleSpawnDistanceMax);
-
 		if (m_iGameMasterAIBudget < 0)
 			m_iGameMasterAIBudget = 0;
-
-		if (m_iLocationBudget < 0)
-			m_iLocationBudget = 0;
-
-		if (m_iLocationBudget > 0 && !m_bEnableCaching)
-		{
-			m_bEnableCaching = true;
-			Print("[SPT_WorldGarrison] Caching ativado automaticamente porque o budget finito depende da preservacao de sobreviventes.",
-				LogLevel.WARNING);
-		}
-
-		if (m_fBuildingSearchRadius < 25)
-			m_fBuildingSearchRadius = 25;
-
-		if (m_fPatrolRadius < 25)
-			m_fPatrolRadius = 25;
 
 		if (m_fMinimumLocationSpacing < 0)
 			m_fMinimumLocationSpacing = 0;
@@ -634,6 +514,215 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			aiWorld.GetCurrentNumOfActiveAIs()));
 	}
 
+	protected bool HasValidResourceList(array<ResourceName> prefabs)
+	{
+		if (!prefabs)
+			return false;
+
+		foreach (ResourceName prefab : prefabs)
+		{
+			if (!prefab.IsEmpty())
+				return true;
+		}
+
+		return false;
+	}
+
+	protected void CopyValidResources(array<ResourceName> source, notnull array<ResourceName> target)
+	{
+		if (!source)
+			return;
+
+		foreach (ResourceName prefab : source)
+		{
+			if (!prefab.IsEmpty())
+				target.Insert(prefab);
+		}
+	}
+
+	protected float GetLocationSpawnDistance(notnull SPT_GarrisonLocation location)
+	{
+		return Math.Max(1.0, location.m_Config.m_fSpawnDistance);
+	}
+
+	protected float GetLocationDespawnDistance(notnull SPT_GarrisonLocation location)
+	{
+		float spawnDistance = GetLocationSpawnDistance(location);
+		if (location.m_Config.m_fDespawnDistance > spawnDistance)
+			return location.m_Config.m_fDespawnDistance;
+		return spawnDistance + 1.0;
+	}
+
+	protected float GetLocationDespawnHysteresis(notnull SPT_GarrisonLocation location)
+	{
+		return Math.Max(0.0, location.m_Config.m_fDespawnHysteresis);
+	}
+
+	protected float GetLocationBuildingSearchRadius(notnull SPT_GarrisonLocation location)
+	{
+		return Math.Max(25.0, location.m_Config.m_fBuildingSearchRadius);
+	}
+
+	protected float GetLocationPatrolRadius(notnull SPT_GarrisonLocation location)
+	{
+		return Math.Max(25.0, location.m_Config.m_fPatrolRadius);
+	}
+
+	protected int GetLocationBudget(notnull SPT_GarrisonLocation location)
+	{
+		return Math.Max(0, location.m_Config.m_iLocationBudget);
+	}
+
+	protected bool IsLocationCachingEnabled(notnull SPT_GarrisonLocation location)
+	{
+		return location.m_Config.m_bEnableCaching;
+	}
+
+	protected int GetLocationSpawnIntervalMs(notnull SPT_GarrisonLocation location)
+	{
+		return Math.Max(0, location.m_Config.m_iSpawnIntervalMs);
+	}
+
+	protected bool IsLocationBattleEnabled(notnull SPT_GarrisonLocation location)
+	{
+		return location.m_Config.m_bBattleEnabled;
+	}
+
+	protected int GetLocationBattleInitialDelayMinMs(notnull SPT_GarrisonLocation location)
+	{
+		return Math.Max(0, location.m_Config.m_iBattleInitialDelayMinMs);
+	}
+
+	protected int GetLocationBattleInitialDelayMaxMs(notnull SPT_GarrisonLocation location)
+	{
+		return Math.Max(GetLocationBattleInitialDelayMinMs(location), location.m_Config.m_iBattleInitialDelayMaxMs);
+	}
+
+	protected int GetLocationBattleWaveDelayMinMs(notnull SPT_GarrisonLocation location)
+	{
+		return Math.Max(0, location.m_Config.m_iBattleWaveDelayMinMs);
+	}
+
+	protected int GetLocationBattleWaveDelayMaxMs(notnull SPT_GarrisonLocation location)
+	{
+		return Math.Max(GetLocationBattleWaveDelayMinMs(location), location.m_Config.m_iBattleWaveDelayMaxMs);
+	}
+
+	protected int GetLocationBattleSpawnIntervalMs(notnull SPT_GarrisonLocation location)
+	{
+		return Math.Max(0, location.m_Config.m_iBattleSpawnIntervalMs);
+	}
+
+	protected int GetLocationBattleWaveUnitsMin(notnull SPT_GarrisonLocation location)
+	{
+		return Math.Max(1, location.m_Config.m_iBattleWaveUnitsMin);
+	}
+
+	protected int GetLocationBattleWaveUnitsMax(notnull SPT_GarrisonLocation location)
+	{
+		return Math.Max(GetLocationBattleWaveUnitsMin(location), location.m_Config.m_iBattleWaveUnitsMax);
+	}
+
+	protected float GetLocationBattleWaveAliveThreshold(notnull SPT_GarrisonLocation location)
+	{
+		return Math.Clamp(location.m_Config.m_fBattleWaveAliveThreshold, 0.0, 1.0);
+	}
+
+	protected float GetLocationBattleSpawnDistanceMin(notnull SPT_GarrisonLocation location)
+	{
+		return Math.Max(100.0, location.m_Config.m_fBattleSpawnDistanceMin);
+	}
+
+	protected float GetLocationBattleSpawnDistanceMax(notnull SPT_GarrisonLocation location)
+	{
+		return Math.Max(GetLocationBattleSpawnDistanceMin(location), location.m_Config.m_fBattleSpawnDistanceMax);
+	}
+
+	protected float GetLocationBattleConcentratedWeight(notnull SPT_GarrisonLocation location)
+	{
+		return Math.Max(0.0, location.m_Config.m_fBattleConcentratedWeight);
+	}
+
+	protected float GetLocationBattleSpreadedWeight(notnull SPT_GarrisonLocation location)
+	{
+		return Math.Max(0.0, location.m_Config.m_fBattleSpreadedWeight);
+	}
+
+	protected float GetLocationBattleConvoyWeight(notnull SPT_GarrisonLocation location)
+	{
+		return Math.Max(0.0, location.m_Config.m_fBattleConvoyWeight);
+	}
+
+	protected ResourceName GetLocationPatrolWaypointPrefab(notnull SPT_GarrisonLocation location)
+	{
+		return location.m_Config.m_sPatrolWaypointPrefab;
+	}
+
+	protected SCR_EAIGroupFormation GetLocationPatrolFormation(notnull SPT_GarrisonLocation location)
+	{
+		return location.m_Config.m_ePatrolFormation;
+	}
+
+	protected EMovementType GetLocationPatrolMovementType(notnull SPT_GarrisonLocation location)
+	{
+		return location.m_Config.m_ePatrolMovementType;
+	}
+
+	protected EMovementType GetLocationBattleMovementType(notnull SPT_GarrisonLocation location)
+	{
+		return location.m_Config.m_eBattleMovementType;
+	}
+
+	protected void GetLocationCQBPrefabs(notnull SPT_GarrisonLocation location, notnull array<ResourceName> outPrefabs)
+	{
+		outPrefabs.Clear();
+		CopyValidResources(location.m_Config.m_aCQBGroupPrefabs, outPrefabs);
+	}
+
+	protected void GetLocationPatrolPrefabs(notnull SPT_GarrisonLocation location, notnull array<ResourceName> outPrefabs)
+	{
+		outPrefabs.Clear();
+		CopyValidResources(location.m_Config.m_aPatrolGroupPrefabs, outPrefabs);
+	}
+
+	protected void GetLocationBattlePrefabs(notnull SPT_GarrisonLocation location, notnull array<ResourceName> outPrefabs)
+	{
+		outPrefabs.Clear();
+		if (HasValidResourceList(location.m_Config.m_aBattleGroupPrefabs))
+		{
+			CopyValidResources(location.m_Config.m_aBattleGroupPrefabs, outPrefabs);
+			return;
+		}
+
+		if (HasValidResourceList(location.m_Config.m_aPatrolGroupPrefabs))
+		{
+			CopyValidResources(location.m_Config.m_aPatrolGroupPrefabs, outPrefabs);
+			return;
+		}
+
+	}
+
+	protected int GetEffectiveCQBPrefabCount(notnull SPT_GarrisonLocation location)
+	{
+		array<ResourceName> prefabs = {};
+		GetLocationCQBPrefabs(location, prefabs);
+		return prefabs.Count();
+	}
+
+	protected int GetEffectivePatrolPrefabCount(notnull SPT_GarrisonLocation location)
+	{
+		array<ResourceName> prefabs = {};
+		GetLocationPatrolPrefabs(location, prefabs);
+		return prefabs.Count();
+	}
+
+	protected int GetEffectiveBattlePrefabCount(notnull SPT_GarrisonLocation location)
+	{
+		array<ResourceName> prefabs = {};
+		GetLocationBattlePrefabs(location, prefabs);
+		return prefabs.Count();
+	}
+
 	protected void InitializeLocations()
 	{
 		BaseWorld world = GetGame().GetWorld();
@@ -649,39 +738,15 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		m_aDescriptorCandidates.Clear();
 		m_aDiscardedDescriptorLocations.Clear();
 
-		SPT_WarfareGameModeComponent warfare = SPT_WarfareGameModeComponent.Cast(
-			GetOwner().FindComponent(SPT_WarfareGameModeComponent));
-		if (!warfare)
-		{
-			world.QueryEntitiesBySphere(
-				vector.Zero,
-				99999999,
-				CollectLocation,
-				FilterLocation,
-				EQueryEntitiesFlags.ALL
-			);
-
-			ResolveDescriptorCandidates();
-			ValidateCanonicalLocations();
-		}
-		else
-		{
-			Print("[SPT_WorldGarrison] Descoberta por descritores desativada; aguardando SPT_WarfarePoint manuais.");
-		}
-
-		foreach (SPT_GarrisonLocation location : m_aLocations)
-			location.InitBudget(m_iLocationBudget);
-
-		Print(string.Format("[SPT_WorldGarrison] %1 locais registrados | spawn %2m | despawn %3m | histerese %4m | gruposCQB=%5 | gruposPatrulha=%6 | raioPatrulha=%7m | budgetLocal=%8",
-			m_aLocations.Count(), m_fSpawnDistance, m_fDespawnDistance, m_fDespawnHysteresis, GetCQBGroupPrefabCount(), GetPatrolGroupPrefabCount(), m_fPatrolRadius, m_iLocationBudget));
+		Print("[SPT_WorldGarrison] Descoberta automatica desativada; aguardando configuracoes dos SPT_WarfarePoint.");
 
 		if (m_aLocations.IsEmpty())
 			Print("[SPT_WorldGarrison] Nenhum local de mapa suportado foi encontrado. Verifique os tipos de descritor e as configuracoes de inclusao.", LogLevel.WARNING);
 
-		// O Warfare inicializa em 2 s e precisa marcar HQs como SAFE antes do
-		// primeiro stream-in. Atrasamos somente o inicio do loop.
+		// O Warfare registra os objetivos inimigos depois deste componente.
+		// Atrasamos o loop para que as localizacoes manuais existam antes do stream-in.
 		GetGame().GetCallqueue().CallLater(StartLocationUpdateLoop, 1500, false);
-		DebugLog("Primeiro ciclo de distancia agendado apos a resolucao SAFE do Warfare.");
+		DebugLog("Primeiro ciclo de distancia agendado apos o registro dos objetivos Warfare.");
 	}
 
 	protected void StartLocationUpdateLoop()
@@ -978,8 +1043,6 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			return;
 		}
 
-		float spawnDistanceSq = m_fSpawnDistance * m_fSpawnDistance;
-
 		foreach (SPT_GarrisonLocation location : m_aLocations)
 		{
 			if (location.m_bSafe)
@@ -993,22 +1056,24 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 
 			float nearestPlayerSq = GetNearestPlayerDistanceSq(location.m_vCenter, playerPositions);
 
-			float effectiveDespawnDistance = m_fDespawnDistance;
+			float spawnDistance = GetLocationSpawnDistance(location);
+			float spawnDistanceSq = spawnDistance * spawnDistance;
+			float effectiveDespawnDistance = GetLocationDespawnDistance(location);
 			if (location.m_bActive)
-				effectiveDespawnDistance = effectiveDespawnDistance + m_fDespawnHysteresis;
+				effectiveDespawnDistance = effectiveDespawnDistance + GetLocationDespawnHysteresis(location);
 			float effectiveDespawnSq = effectiveDespawnDistance * effectiveDespawnDistance;
 
 			if (logThisUpdate && nearestPlayerSq <= effectiveDespawnSq * 4)
 			{
-				DebugLog(string.Format("Distancia do local | nome=%1 | distancia=%2m | ativo=%3 | indisponivel=%4 | despawnEfetivo=%5m",
-					location.m_sName, Math.Sqrt(nearestPlayerSq), location.m_bActive, location.m_bUnavailable, Math.Sqrt(effectiveDespawnSq)));
+				DebugLog(string.Format("Distancia do local | nome=%1 | distancia=%2m | ativo=%3 | indisponivel=%4 | spawn=%5m | despawnEfetivo=%6m",
+					location.m_sName, Math.Sqrt(nearestPlayerSq), location.m_bActive, location.m_bUnavailable, spawnDistance, Math.Sqrt(effectiveDespawnSq)));
 			}
 
 			if (!location.m_bActive && nearestPlayerSq <= spawnDistanceSq)
 			{
 				// Um snapshot vazio tem significado: esta localizacao foi
 				// completamente eliminada e nao deve receber uma guarnicao nova.
-				if (m_bEnableCaching && location.m_bHasCachedSnapshot && location.m_aCachedGroups.IsEmpty())
+				if (IsLocationCachingEnabled(location) && location.m_bHasCachedSnapshot && location.m_aCachedGroups.IsEmpty())
 				{
 					location.RefreshClearedState();
 					if (logThisUpdate)
@@ -1093,9 +1158,16 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		if (!location || location.m_bSafe || location.m_Battle.m_bActive || !location.CanDeployUnits())
 			return false;
 
+		if (!IsLocationBattleEnabled(location))
+			return false;
+
 		location.m_Battle.Reset();
 		location.m_Battle.m_bActive = true;
-		location.m_Battle.m_iTimerMs = 0;
+		int initialDelayMin = GetLocationBattleInitialDelayMinMs(location);
+		int initialDelayMax = GetLocationBattleInitialDelayMaxMs(location);
+		if (initialDelayMax < initialDelayMin)
+			initialDelayMax = initialDelayMin;
+		location.m_Battle.m_iTimerMs = RandomRangeInt(initialDelayMin, initialDelayMax);
 		BuildBattleWaves(location);
 
 		if (location.m_Battle.m_aWaves.IsEmpty())
@@ -1221,20 +1293,40 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		m_aDiscardedDescriptorLocations.Clear();
 	}
 
-	bool RegisterManualWarfareLocation(string locationId, string displayName, vector center)
+	bool RegisterManualWarfareLocation(string locationId, string displayName, vector center, SPT_GarrisonLocationConfig config)
 	{
 		if (!Replication.IsServer() || locationId.IsEmpty() || FindLocationById(locationId))
 			return false;
+		if (!config)
+		{
+			Print(string.Format("[SPT_WorldGarrison] Ponto %1 rejeitado: configuracao local obrigatoria ausente.", locationId), LogLevel.ERROR);
+			return false;
+		}
 
 		SPT_GarrisonLocation location = new SPT_GarrisonLocation(
 			center,
 			displayName,
 			EMapDescriptorType.MDT_BASE,
 			locationId);
-		location.InitBudget(m_iLocationBudget);
+		location.m_Config = config;
+		location.InitBudget(GetLocationBudget(location));
 		m_aLocations.Insert(location);
 		Print(string.Format("[SPT_WorldGarrison] Localizacao Warfare manual registrada | id=%1 | nome=%2 | posicao=%3",
 			locationId, displayName, center));
+		Print(string.Format("[SPT_WorldGarrison] Config local | id=%1 | spawn=%2 | despawn=%3 | cache=%4 | budget=%5 | CQB=%6 | patrol=%7 | battle=%8",
+			locationId,
+			GetLocationSpawnDistance(location),
+			GetLocationDespawnDistance(location),
+			IsLocationCachingEnabled(location),
+			location.m_iMaxBudget,
+			GetEffectiveCQBPrefabCount(location),
+			GetEffectivePatrolPrefabCount(location),
+			IsLocationBattleEnabled(location)));
+		Print(string.Format("[SPT_WorldGarrison] Config de reforcos | id=%1 | battlePrefabs=%2 | convoyVehicles=%3 | spawnIntervalMs=%4",
+			locationId,
+			GetEffectiveBattlePrefabCount(location),
+			location.m_Config.m_aBattleVehicles.Count(),
+			GetLocationBattleSpawnIntervalMs(location)));
 		return true;
 	}
 
@@ -1435,7 +1527,7 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 	protected SPT_GarrisonLocation FindNearestLocation(vector position)
 	{
 		SPT_GarrisonLocation best;
-		float bestSq = m_fSpawnDistance * m_fSpawnDistance;
+		float bestSq = float.MAX;
 		foreach (SPT_GarrisonLocation location : m_aLocations)
 		{
 			float distanceSq = HorizontalDistanceSq(position, location.m_vCenter);
@@ -1451,7 +1543,12 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 	{
 		int available = location.m_iBudgetRemaining;
 		if (location.HasUnlimitedBudget())
-			available = m_iBattleWaveUnitsMax * 3;
+			available = GetLocationBattleWaveUnitsMax(location) * 3;
+
+		int waveUnitsMin = GetLocationBattleWaveUnitsMin(location);
+		int waveUnitsMax = GetLocationBattleWaveUnitsMax(location);
+		if (waveUnitsMax < waveUnitsMin)
+			waveUnitsMax = waveUnitsMin;
 
 		static const array<ref array<float>> patterns = {
 			{0.2, 0.3, 0.5},
@@ -1471,26 +1568,26 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 
 			int waveUnits = Math.ClampInt(
 				original * factor,
-				m_iBattleWaveUnitsMin,
-				m_iBattleWaveUnitsMax);
+				waveUnitsMin,
+				waveUnitsMax);
 			waveUnits = Math.Min(waveUnits, available);
-			if (available - waveUnits < m_iBattleWaveUnitsMin)
+			if (available - waveUnits < waveUnitsMin)
 				waveUnits = available;
 
 			SPT_BattleWave wave = new SPT_BattleWave();
 			wave.m_iUnitBudget = waveUnits;
-			wave.m_eStrategy = SelectBattleStrategy();
+			wave.m_eStrategy = SelectBattleStrategy(location);
 			location.m_Battle.m_aWaves.Insert(wave);
 			available -= waveUnits;
 			waveIndex++;
 		}
 	}
 
-	protected SPT_EDeploymentStrategy SelectBattleStrategy()
+	protected SPT_EDeploymentStrategy SelectBattleStrategy(notnull SPT_GarrisonLocation location)
 	{
-		float concentrated = Math.Max(0.0, m_fBattleConcentratedWeight);
-		float spreaded = Math.Max(0.0, m_fBattleSpreadedWeight);
-		float convoy = Math.Max(0.0, m_fBattleConvoyWeight);
+		float concentrated = Math.Max(0.0, GetLocationBattleConcentratedWeight(location));
+		float spreaded = Math.Max(0.0, GetLocationBattleSpreadedWeight(location));
+		float convoy = Math.Max(0.0, GetLocationBattleConvoyWeight(location));
 		float total = concentrated + spreaded + convoy;
 		if (total <= 0)
 			return SPT_EDeploymentStrategy.SPREADED;
@@ -1539,11 +1636,12 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			if (!deploy && battle.m_iTimerMs == 0)
 				deploy = true;
 			if (!deploy && currentWave && currentWave.m_iDeployedUnits > 0)
-				deploy = aliveBattle < currentWave.m_iDeployedUnits * m_fBattleWaveAliveThreshold;
+				deploy = aliveBattle < currentWave.m_iDeployedUnits * GetLocationBattleWaveAliveThreshold(location);
 			if (!deploy || playerPositions.IsEmpty())
 				continue;
 
-			float activationSq = m_fSpawnDistance * m_fSpawnDistance;
+			float activationDistance = GetLocationSpawnDistance(location);
+			float activationSq = activationDistance * activationDistance;
 			if (GetNearestPlayerDistanceSq(location.m_vCenter, playerPositions) > activationSq)
 				continue;
 
@@ -1598,7 +1696,7 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		battle.m_iCurrentWave = nextIndex;
 		battle.m_iTimerMs = -1;
 
-		if (wave.m_eStrategy == SPT_EDeploymentStrategy.CONVOY && !CanDeployConvoy())
+		if (wave.m_eStrategy == SPT_EDeploymentStrategy.CONVOY && !CanDeployConvoy(location))
 		{
 			Print(string.Format("[SPT_WorldGarrison] CONVOY indisponivel; usando SPREADED | local=%1",
 				location.m_sName), LogLevel.WARNING);
@@ -1619,14 +1717,14 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			SpawnConvoyVehicles(location, wave, positions);
 
 		array<ResourceName> prefabs = {};
-		if (m_aPatrolGroupPrefabs)
-		{
-			foreach (ResourceName prefab : m_aPatrolGroupPrefabs)
-				if (!prefab.IsEmpty())
-					prefabs.Insert(prefab);
-		}
+		GetLocationBattlePrefabs(location, prefabs);
 		if (prefabs.IsEmpty())
+		{
+			Print(string.Format("[SPT_WorldGarrison] Nenhum prefab de reforco configurado para %1.", location.m_sName), LogLevel.WARNING);
+			wave.m_bDeploymentFinished = true;
+			ScheduleNextBattleWave(location);
 			return;
+		}
 
 		array<ref SPT_GarrisonSpawnRequest> requests = {};
 		int plannedUnits = wave.m_iDeployedUnits;
@@ -1670,10 +1768,10 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		notnull SPT_BattleWave wave,
 		notnull array<vector> positions)
 	{
-		if (!m_aBattleVehicles || m_aBattleVehicles.IsEmpty())
+		if (!location.m_Config.m_aBattleVehicles || location.m_Config.m_aBattleVehicles.IsEmpty())
 			return;
 
-		int vehicleLimit = Math.Min(m_aBattleVehicles.Count(), positions.Count());
+		int vehicleLimit = Math.Min(location.m_Config.m_aBattleVehicles.Count(), positions.Count());
 		for (int i = vehicleLimit - 1; i >= 0; i--)
 		{
 			int waveRemaining = wave.m_iUnitBudget - wave.m_iDeployedUnits;
@@ -1681,7 +1779,7 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			if (budgetLimit < 1)
 				break;
 
-			SPT_BattleVehicleConfig config = m_aBattleVehicles[i % m_aBattleVehicles.Count()];
+			SPT_BattleVehicleConfig config = location.m_Config.m_aBattleVehicles[i % location.m_Config.m_aBattleVehicles.Count()];
 			float roadYaw = (location.m_vCenter - positions[i]).ToYaw();
 			if (positions.Count() > 1)
 			{
@@ -1792,10 +1890,10 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		SPT_AIGarrisonHelper.PatrolGroup(
 			group,
 			location.m_vCenter,
-			m_fPatrolRadius,
-			m_sPatrolWaypointPrefab,
-			m_ePatrolFormation,
-			m_ePatrolMovementType);
+			GetLocationPatrolRadius(location),
+			GetLocationPatrolWaypointPrefab(location),
+			GetLocationPatrolFormation(location),
+			GetLocationBattleMovementType(location));
 		return vehicle;
 	}
 
@@ -1861,10 +1959,10 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		SPT_AIGarrisonHelper.PatrolGroup(
 			group,
 			location.m_vCenter,
-			m_fPatrolRadius,
-			m_sPatrolWaypointPrefab,
-			m_ePatrolFormation,
-			m_ePatrolMovementType);
+			GetLocationPatrolRadius(location),
+			GetLocationPatrolWaypointPrefab(location),
+			GetLocationPatrolFormation(location),
+			GetLocationBattleMovementType(location));
 		return group;
 	}
 
@@ -1901,12 +1999,17 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		out array<vector> positions)
 	{
 		positions.Clear();
+		float minDistance = GetLocationBattleSpawnDistanceMin(location);
+		float maxDistance = GetLocationBattleSpawnDistanceMax(location);
+		if (maxDistance < minDistance)
+			maxDistance = minDistance;
+
 		if (strategy == SPT_EDeploymentStrategy.CONVOY)
 		{
 			if (SPT_RoadNetworkService.FindConvoyPositions(
 				location.m_vCenter,
-				m_fBattleSpawnDistanceMin,
-				m_fBattleSpawnDistanceMax,
+				minDistance,
+				maxDistance,
 				count,
 				20.0,
 				positions))
@@ -1921,8 +2024,8 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			float angle = concentratedAngle;
 			if (strategy == SPT_EDeploymentStrategy.SPREADED)
 				angle = baseAngle + i * Math.PI * 2.0 / count;
-			float distance = m_fBattleSpawnDistanceMin
-				+ Math.RandomFloat01() * (m_fBattleSpawnDistanceMax - m_fBattleSpawnDistanceMin);
+			float distance = minDistance
+				+ Math.RandomFloat01() * (maxDistance - minDistance);
 			vector position = location.m_vCenter + Vector(
 				Math.Cos(angle) * distance,
 				0,
@@ -1932,14 +2035,20 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		}
 	}
 
-	protected bool CanDeployConvoy()
+	protected bool CanDeployConvoy(notnull SPT_GarrisonLocation location)
 	{
-		return m_aBattleVehicles && !m_aBattleVehicles.IsEmpty() && SPT_RoadNetworkService.IsAvailable();
+		return location.m_Config.m_aBattleVehicles
+			&& !location.m_Config.m_aBattleVehicles.IsEmpty()
+			&& SPT_RoadNetworkService.IsAvailable();
 	}
 
 	protected void ScheduleNextBattleWave(notnull SPT_GarrisonLocation location)
 	{
-		location.m_Battle.m_iTimerMs = 0;
+		int delayMin = GetLocationBattleWaveDelayMinMs(location);
+		int delayMax = GetLocationBattleWaveDelayMaxMs(location);
+		if (delayMax < delayMin)
+			delayMax = delayMin;
+		location.m_Battle.m_iTimerMs = RandomRangeInt(delayMin, delayMax);
 		int nextIndex = location.m_Battle.m_iCurrentWave + 1;
 		m_OnBattleWaveScheduled.Invoke(location.m_sLocationId, nextIndex);
 	}
@@ -1963,7 +2072,7 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		// localizacao tiver sobreviventes salvos de um stream-out anterior,
 		// respawna apenas esses sobreviventes em vez de gerar grupos novos.
 		// -----------------------------------------------------------------
-		if (m_bEnableCaching && location.m_bHasCachedSnapshot)
+		if (IsLocationCachingEnabled(location) && location.m_bHasCachedSnapshot)
 		{
 			if (location.m_aCachedGroups.IsEmpty())
 			{
@@ -1979,30 +2088,36 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			return;
 		}
 
-		DebugLog(string.Format("SpawnLocation iniciado | nome=%1 | centro=%2 | gruposCQB=%3 | gruposPatrulha=%4",
-			location.m_sName, location.m_vCenter, GetCQBGroupPrefabCount(), GetPatrolGroupPrefabCount()));
+		array<ResourceName> cqbPrefabs = {};
+		array<ResourceName> patrolPrefabs = {};
+		GetLocationCQBPrefabs(location, cqbPrefabs);
+		GetLocationPatrolPrefabs(location, patrolPrefabs);
 
-		if (GetCQBGroupPrefabCount() + GetPatrolGroupPrefabCount() < 1)
+		DebugLog(string.Format("SpawnLocation iniciado | nome=%1 | centro=%2 | gruposCQB=%3 | gruposPatrulha=%4",
+			location.m_sName, location.m_vCenter, cqbPrefabs.Count(), patrolPrefabs.Count()));
+
+		if (cqbPrefabs.Count() + patrolPrefabs.Count() < 1)
 		{
-			Print("[SPT_WorldGarrison] Nenhum grupo CQB ou de patrulha configurado.", LogLevel.ERROR);
+			Print(string.Format("[SPT_WorldGarrison] Nenhum grupo CQB ou de patrulha configurado para %1.", location.m_sName), LogLevel.ERROR);
 			return;
 		}
 
 		array<vector> buildings = {};
+		float buildingSearchRadius = GetLocationBuildingSearchRadius(location);
 		SPT_GarrisonDetector.CollectBuildingCenters(
 			GetGame().GetWorld(),
 			location.m_vCenter,
-			m_fBuildingSearchRadius,
+			buildingSearchRadius,
 			buildings
 		);
 		DebugLog(string.Format("Detector de construcoes retornou %1 centros estruturais em %2m.",
-			buildings.Count(), m_fBuildingSearchRadius));
+			buildings.Count(), buildingSearchRadius));
 
 		if (buildings.IsEmpty())
 		{
 			Print(string.Format("[SPT_WorldGarrison] Nenhuma construcao utilizavel ao redor de %1 em %2",
 				location.m_sName, location.m_vCenter), LogLevel.WARNING);
-			if (GetPatrolGroupPrefabCount() < 1)
+			if (patrolPrefabs.Count() < 1)
 			{
 				location.m_bUnavailable = true;
 				return;
@@ -2022,24 +2137,18 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 
 		array<ResourceName> groupPrefabs = {};
 		array<bool> patrolFlags = {};
-		if (m_aCQBGroupPrefabs)
+		foreach (ResourceName cqbPrefab : cqbPrefabs)
 		{
-			foreach (ResourceName cqbPrefab : m_aCQBGroupPrefabs)
-			{
-				groupPrefabs.Insert(cqbPrefab);
-				patrolFlags.Insert(false);
-			}
+			groupPrefabs.Insert(cqbPrefab);
+			patrolFlags.Insert(false);
 		}
-		if (m_aPatrolGroupPrefabs)
+		foreach (ResourceName patrolPrefab : patrolPrefabs)
 		{
-			foreach (ResourceName patrolPrefab : m_aPatrolGroupPrefabs)
-			{
-				groupPrefabs.Insert(patrolPrefab);
-				patrolFlags.Insert(true);
-			}
+			groupPrefabs.Insert(patrolPrefab);
+			patrolFlags.Insert(true);
 		}
 		DebugLog(string.Format("Listas preparadas para spawn | CQB=%1 | patrulha=%2 | total=%3",
-			GetCQBGroupPrefabCount(), GetPatrolGroupPrefabCount(), groupPrefabs.Count()));
+			cqbPrefabs.Count(), patrolPrefabs.Count(), groupPrefabs.Count()));
 
 		// Prepara requisicoes de spawn e enfileira para processamento assincrono.
 		// O spawn real acontece em ProcessSpawnQueue, um grupo por tick.
@@ -2053,7 +2162,7 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			{
 				if (!FindOutdoorPatrolSpawn(
 					location.m_vCenter,
-					m_fPatrolRadius,
+					GetLocationPatrolRadius(location),
 					buildings,
 					patrolSpawnPositions,
 					patrolSpawnIndex,
@@ -2123,7 +2232,7 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 
 		EnqueueSpawns(requests);
 		Print(string.Format("[SPT_WorldGarrison] Guarnicao inicial enfileirada em %1 | grupos=%2 | intervaloMs=%3; aguardando agentes",
-			location.m_sName, requests.Count(), m_iSpawnIntervalMs));
+			location.m_sName, requests.Count(), GetLocationSpawnIntervalMs(location)));
 	}
 
 	//! Restaura grupos cacheados (que sofreram stream-out) em vez de spawnar
@@ -2229,6 +2338,7 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 				cached.m_vPosition,
 				location.m_vCenter,
 				!cached.m_bIsCQB,
+				cached.m_bIsBattleGroup,
 				spawnedUnits,
 				20
 			);
@@ -2290,11 +2400,22 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		if (!m_bProcessingSpawnQueue)
 		{
 			m_bProcessingSpawnQueue = true;
-			int intervalMs = m_iSpawnIntervalMs;
+			int intervalMs = 1;
+			if (!m_aPendingSpawns.IsEmpty())
+				intervalMs = GetSpawnRequestIntervalMs(m_aPendingSpawns[0]);
 			if (intervalMs < 1)
 				intervalMs = 1;
 			GetGame().GetCallqueue().CallLater(ProcessSpawnQueue, intervalMs, false);
 		}
+	}
+
+	protected int GetSpawnRequestIntervalMs(SPT_GarrisonSpawnRequest request)
+	{
+		if (!request || !request.m_Location)
+			return 1;
+		if (request.m_bIsBattleSpawn)
+			return GetLocationBattleSpawnIntervalMs(request.m_Location);
+		return GetLocationSpawnIntervalMs(request.m_Location);
 	}
 
 	//! Processa um unico spawn da fila por invocacao. Reagenda-se via
@@ -2319,7 +2440,9 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			return;
 		}
 
-		int intervalMs = m_iSpawnIntervalMs;
+		int intervalMs = 1;
+		if (!m_aPendingSpawns.IsEmpty())
+			intervalMs = GetSpawnRequestIntervalMs(m_aPendingSpawns[0]);
 		if (intervalMs < 1)
 			intervalMs = 1;
 		GetGame().GetCallqueue().CallLater(ProcessSpawnQueue, intervalMs, false);
@@ -2520,6 +2643,7 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			250, false,
 			location, group, req.m_vSpawnPosition, req.m_vCityCenter,
 			!req.m_bIsCQB,
+			req.m_bIsBattleSpawn,
 			spawnedUnits,
 			20);
 	}
@@ -2730,6 +2854,7 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		vector buildingCenter,
 		vector patrolCenter,
 		bool patrolGroup,
+		bool battleGroup,
 		int expectedMembers,
 		int pollsLeft)
 	{
@@ -2756,6 +2881,7 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 				buildingCenter,
 				patrolCenter,
 				patrolGroup,
+				battleGroup,
 				expectedMembers,
 				pollsLeft - 1
 			);
@@ -2783,21 +2909,24 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 
 		if (patrolGroup)
 		{
+			EMovementType movementType = GetLocationPatrolMovementType(location);
+			if (battleGroup)
+				movementType = GetLocationBattleMovementType(location);
 			DebugLog(string.Format("Enviando grupo para patrulha | grupo=%1 | agentes=%2 | centroCidade=%3 | raio=%4",
-				group, agentCount, patrolCenter, m_fPatrolRadius));
+				group, agentCount, patrolCenter, GetLocationPatrolRadius(location)));
 			SPT_AIGarrisonHelper.PatrolGroup(
 				group,
 				patrolCenter,
-				m_fPatrolRadius,
-				m_sPatrolWaypointPrefab,
-				m_ePatrolFormation,
-				m_ePatrolMovementType);
+				GetLocationPatrolRadius(location),
+				GetLocationPatrolWaypointPrefab(location),
+				GetLocationPatrolFormation(location),
+				movementType);
 		}
 		else
 		{
 			DebugLog(string.Format("Enviando grupo para CQB estatico | grupo=%1 | agentes=%2 | centroConstrucao=%3",
 				group, agentCount, buildingCenter));
-			SPT_AIGarrisonHelper.GarrisonGroup(group, buildingCenter, m_fBuildingSearchRadius);
+			SPT_AIGarrisonHelper.GarrisonGroup(group, buildingCenter, GetLocationBuildingSearchRadius(location));
 		}
 		CompletePendingGroup(location, true);
 	}
@@ -2806,7 +2935,7 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 	{
 		CancelPendingSpawns(location);
 
-		if (m_bEnableCaching)
+		if (IsLocationCachingEnabled(location))
 		{
 			// =============================================================
 			// CAMINHO DE CACHING: Salva os membros vivos de cada grupo
@@ -3101,20 +3230,6 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 
 		Print(string.Format("[SPT_WorldGarrison] Nao foi possivel remover grupo vazio apos restauracao falha | id=%1",
 			group.GetID()), LogLevel.ERROR);
-	}
-
-	protected int GetCQBGroupPrefabCount()
-	{
-		if (!m_aCQBGroupPrefabs)
-			return 0;
-		return m_aCQBGroupPrefabs.Count();
-	}
-
-	protected int GetPatrolGroupPrefabCount()
-	{
-		if (!m_aPatrolGroupPrefabs)
-			return 0;
-		return m_aPatrolGroupPrefabs.Count();
 	}
 
 	protected bool FindOutdoorPatrolSpawn(

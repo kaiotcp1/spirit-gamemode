@@ -2,23 +2,37 @@ $grp GenericEntity : "{B1F6A2439C8D7500}Prefabs/Warfare/SPT_WarfarePoint.et" {
  {
   components {
    SPT_WarfarePointComponent "{B1F6A2439C8D7502}" {
-    m_sPointId "HQ_PLAYER"
-    m_sDisplayName "Base Inicial"
-    m_fRadius 250
-    m_iCaptureOrder 0
-   }
-  }
-  coords 1280.475 37.509 2941.303
- }
- {
-  components {
-   SPT_WarfarePointComponent "{B1F6A2439C8D7502}" {
     m_sPointId "CIDADE_1"
     m_sDisplayName "Area Militar 1"
     m_ePointType CITY
+    m_fGarrisonSpawnDistance 800
+    m_fGarrisonDespawnDistance 800
+    m_fGarrisonDespawnHysteresis 100
+    m_fGarrisonBuildingSearchRadius 200
+    m_fGarrisonPatrolRadius 400
+    m_iGarrisonLocationBudget 20
+    m_iGarrisonSpawnIntervalMs 5000
+    m_aGarrisonCQBGroupPrefabs {
+     "{958039B857396B7B}Prefabs/Groups/BLUFOR/Group_US_MachineGunTeam.et"
+     "{6B2A6EE5002D200F}Prefabs/Groups/BLUFOR/Group_US_EngineerTeam.et"
+    }
+    m_aGarrisonPatrolGroupPrefabs {
+     "{958039B857396B7B}Prefabs/Groups/BLUFOR/Group_US_MachineGunTeam.et"
+    }
+    m_eGarrisonPatrolFormation Column
+    m_bBattleEnabled 1
+    m_iBattleWaveUnitsMin 30
+    m_iBattleWaveUnitsMax 60
+    m_fBattleSpawnDistanceMin 1200
+    m_fBattleSpawnDistanceMax 1200
+    m_fBattleSpreadedWeight 1
+    m_fBattleConvoyWeight 1
+    m_aBattleGroupPrefabs {
+     "{B7AB5D3F8A7ADAE4}Prefabs/Groups/BLUFOR/Group_US_PlatoonHQ.et"
+    }
    }
   }
-  coords 3128.759 11.458 2828.669
+  coords 3143.604 11.5 2771.175
  }
  {
   components {
@@ -32,6 +46,22 @@ $grp GenericEntity : "{B1F6A2439C8D7500}Prefabs/Warfare/SPT_WarfarePoint.et" {
   }
   coords 1387.854 36.219 2365.719
  }
+ {
+  components {
+   SPT_WarfarePointComponent "{B1F6A2439C8D7502}" {
+    m_sPointId "MILITARY_BASE_2"
+    m_sDisplayName "Area militar 1"
+    m_ePointType MILITARY_BASE
+    m_fRadius 100
+    m_iCaptureOrder 3
+    m_fGarrisonSpawnDistance 400
+    m_fGarrisonDespawnDistance 500
+    m_fGarrisonPatrolRadius 200
+    m_iGarrisonLocationBudget 15
+   }
+  }
+  coords 1398.746 10.904 1855.637
+ }
 }
 $grp GenericEntity : "{CCC00D009D4949B0}Prefabs/Weapons/Explosives/Mine_TM62M/Mine_TM62M_base.et" {
  Mine_TM62M_base_69B91BBBDC3D1630 {
@@ -40,4 +70,14 @@ $grp GenericEntity : "{CCC00D009D4949B0}Prefabs/Weapons/Explosives/Mine_TM62M/Mi
  Mine_TM62M_base_69BA1901389CCF3B {
   coords 3157.098 11.563 2806.64
  }
+}
+GenericEntity : "{D4A8C0512E7B9400}Prefabs/Warfare/SPT_WarfareHQ.et" {
+ components {
+  SPT_WarfareHQComponent "{D4A8C0512E7B9402}" {
+   m_sPointId "HQ_PLAYER"
+   m_sDisplayName "Base Inicial"
+   m_fRadius 250
+  }
+ }
+ coords 1280.475 37.509 2941.303
 }

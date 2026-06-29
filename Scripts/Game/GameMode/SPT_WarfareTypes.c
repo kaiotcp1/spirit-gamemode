@@ -30,8 +30,41 @@ enum SPT_EWarfarePointType
 	CUSTOM
 }
 
-//! Dados de configuracao de um ponto Warfare, extraidos do SPT_WarfarePointComponent
-//! e cacheados pelo manager para consulta rapida.
+class SPT_GarrisonLocationConfig : Managed
+{
+	float m_fSpawnDistance = 1200.0;
+	float m_fDespawnDistance = 1600.0;
+	float m_fDespawnHysteresis = 150.0;
+	float m_fBuildingSearchRadius = 225.0;
+	float m_fPatrolRadius = 500.0;
+	int m_iLocationBudget = 100;
+	bool m_bEnableCaching = true;
+	int m_iSpawnIntervalMs = 500;
+	ref array<ResourceName> m_aCQBGroupPrefabs = new array<ResourceName>();
+	ref array<ResourceName> m_aPatrolGroupPrefabs = new array<ResourceName>();
+	ResourceName m_sPatrolWaypointPrefab;
+	SCR_EAIGroupFormation m_ePatrolFormation;
+	EMovementType m_ePatrolMovementType;
+	EMovementType m_eBattleMovementType = EMovementType.RUN;
+	bool m_bBattleEnabled = true;
+	int m_iBattleInitialDelayMinMs;
+	int m_iBattleInitialDelayMaxMs;
+	int m_iBattleWaveDelayMinMs;
+	int m_iBattleWaveDelayMaxMs;
+	int m_iBattleSpawnIntervalMs = 1000;
+	int m_iBattleWaveUnitsMin = 16;
+	int m_iBattleWaveUnitsMax = 28;
+	float m_fBattleWaveAliveThreshold = 0.35;
+	float m_fBattleSpawnDistanceMin = 600.0;
+	float m_fBattleSpawnDistanceMax = 1000.0;
+	float m_fBattleConcentratedWeight = 0.25;
+	float m_fBattleSpreadedWeight = 0.35;
+	float m_fBattleConvoyWeight = 0.4;
+	ref array<ResourceName> m_aBattleGroupPrefabs = new array<ResourceName>();
+	ref array<ref SPT_BattleVehicleConfig> m_aBattleVehicles = new array<ref SPT_BattleVehicleConfig>();
+}
+
+//! Dados territoriais extraidos de um HQ aliado ou objetivo inimigo.
 class SPT_WarfarePointData : Managed
 {
 	//! ID estavel do ponto (string unica definida no componente ou derivada do descritor).
@@ -55,7 +88,7 @@ class SPT_WarfarePointData : Managed
 	//! Verdadeiro se este ponto e um HQ inicial.
 	bool m_bIsHQ;
 
-	//! Etapa territorial configurada manualmente (0 = HQ).
+	//! Etapa territorial: 0 para SPT_WarfareHQ e 1+ para objetivo inimigo.
 	int m_iCaptureOrder;
 
 	//! Verdadeiro se este ponto conta para a condicao de vitoria.
@@ -66,6 +99,9 @@ class SPT_WarfarePointData : Managed
 
 	//! Usado somente pelo preview do editor para destacar configuracao invalida.
 	bool m_bPreviewInvalid;
+
+	//! Configuracao hostil. Permanece nula para HQs.
+	ref SPT_GarrisonLocationConfig m_GarrisonConfig;
 
 	void SPT_WarfarePointData()
 	{

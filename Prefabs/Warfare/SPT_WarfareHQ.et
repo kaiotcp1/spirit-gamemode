@@ -1,0 +1,9 @@
+GenericEntity {
+ ID "D4A8C0512E7B9401"
+ components {
+  SPT_WarfareHQComponent "{D4A8C0512E7B9402}" {
+   m_ePointType MILITARY_BASE
+   m_fRadius 250
+  }
+ }
+}

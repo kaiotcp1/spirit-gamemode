@@ -2,6 +2,53 @@ GenericEntity {
  ID "B1F6A2439C8D7501"
  components {
   SPT_WarfarePointComponent "{B1F6A2439C8D7502}" {
+   m_fGarrisonSpawnDistance 1200
+   m_fGarrisonDespawnDistance 1600
+   m_fGarrisonDespawnHysteresis 150
+   m_fGarrisonBuildingSearchRadius 225
+   m_fGarrisonPatrolRadius 500
+   m_iGarrisonLocationBudget 100
+   m_bGarrisonEnableCaching 1
+   m_iGarrisonSpawnIntervalMs 500
+   m_aGarrisonCQBGroupPrefabs {
+    "{958039B857396B7B}Prefabs/Groups/BLUFOR/Group_US_MachineGunTeam.et"
+    "{6B2A6EE5002D200F}Prefabs/Groups/BLUFOR/Group_US_EngineerTeam.et"
+    "{DE747BC9217D383C}Prefabs/Groups/BLUFOR/Group_US_Team_GL.et"
+   }
+   m_aGarrisonPatrolGroupPrefabs {
+    "{DDF3799FA1387848}Prefabs/Groups/BLUFOR/Group_US_RifleSquad.et"
+    "{B7AB5D3F8A7ADAE4}Prefabs/Groups/BLUFOR/Group_US_PlatoonHQ.et"
+    "{958039B857396B7B}Prefabs/Groups/BLUFOR/Group_US_MachineGunTeam.et"
+   }
+   m_sGarrisonPatrolWaypointPrefab "{FFF9518F73279473}PrefabsEditable/Auto/AI/Waypoints/E_AIWaypoint_Move.et"
+   m_eGarrisonPatrolFormation Column
+   m_eGarrisonPatrolMovementType WALK
+   m_eBattleMovementType RUN
+   m_bBattleEnabled 1
+   m_iBattleInitialDelayMinMs 0
+   m_iBattleInitialDelayMaxMs 0
+   m_iBattleWaveDelayMinMs 0
+   m_iBattleWaveDelayMaxMs 0
+   m_iBattleSpawnIntervalMs 1000
+   m_iBattleWaveUnitsMin 16
+   m_iBattleWaveUnitsMax 28
+   m_fBattleWaveAliveThreshold 0.35
+   m_fBattleSpawnDistanceMin 600
+   m_fBattleSpawnDistanceMax 1000
+   m_fBattleConcentratedWeight 0.25
+   m_fBattleSpreadedWeight 0.35
+   m_fBattleConvoyWeight 0.4
+   m_aBattleGroupPrefabs {
+    "{DDF3799FA1387848}Prefabs/Groups/BLUFOR/Group_US_RifleSquad.et"
+    "{B7AB5D3F8A7ADAE4}Prefabs/Groups/BLUFOR/Group_US_PlatoonHQ.et"
+    "{DE747BC9217D383C}Prefabs/Groups/BLUFOR/Group_US_Team_GL.et"
+   }
+   m_aBattleVehicles {
+    SPT_BattleVehicleConfig "{B1F6A2439C8D7503}" {
+     m_rVehiclePrefab "{1FF144F8A209239D}Prefabs/Vehicles/Wheeled/M923A1/M923A1_arsenal.et"
+     m_rCrewGroupPrefab "{727C134094032B1F}Prefabs/Groups/BLUFOR/Group_US_Transport.et"
+    }
+   }
   }
  }
 }
