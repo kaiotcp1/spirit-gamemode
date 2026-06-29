@@ -32,6 +32,26 @@ class SPT_GarrisonOpening
 	}
 }
 
+//! Registro de construcao candidata a CQB com pontuacao de qualidade.
+//! Usado pelo detector para ordenar construcoes da melhor para a pior,
+//! priorizando edificios com varios andares, janelas, escadas e terraços.
+class SPT_BuildingCQBRecord
+{
+	//! Centro da casca estrutural no mundo
+	vector m_vCenter;
+	//! Pontuacao de qualidade CQB (maior = melhor)
+	float m_fScore;
+	//! Volume da bounding box (m³) – usado como metrica confiavel de tamanho
+	float m_fVolumeM3;
+
+	void SPT_BuildingCQBRecord(vector center, float score, float volumeM3)
+	{
+		m_vCenter = center;
+		m_fScore = score;
+		m_fVolumeM3 = volumeM3;
+	}
+}
+
 // Detector de postos de guarnicao: analisa construcoes, encontra posicoes validas no interior,
 // distribui soldados e atribui direcoes de vigilancia com base em portas, janelas e rotas internas
 class SPT_GarrisonDetector
@@ -88,6 +108,29 @@ class SPT_GarrisonDetector
 	// Quando true, usa as caixas delimitadoras internas (OBB) como porteiro adicional de validacao
 	protected const bool  USE_INTERIOR_OBB_GATE  = false;
 
+	// --- Constantes de qualidade de construcao para CQB ---
+	// Filtro minimo para descartar toneis, destroços e props muito pequenos
+	protected const float MIN_CQB_BUILDING_VOLUME_M3      = 16.0;   // volume minimo (m³) – toneis e props ficam abaixo
+	protected const float MIN_CQB_BUILDING_HEIGHT_M       = 2.0;    // altura minima (m) – menos que isso nao cabe um soldado em pe
+	protected const float MIN_CQB_BUILDING_HORIZONTAL_M   = 1.8;    // extensao horizontal minima (m) em X ou Z
+
+	// Pesos da pontuacao de qualidade CQB (todos somam para produzir o score final)
+	protected const float SCORE_VOLUME_WEIGHT             = 2.5;    // peso do volume (construcoes maiores = melhores)
+	protected const float SCORE_HEIGHT_WEIGHT             = 3.0;    // peso da altura (proxy para andares; mais andares = melhor CQB)
+	protected const float SCORE_DOOR_WEIGHT               = 0.8;    // peso por porta encontrada (mais portas = mais caminhos)
+	protected const float SCORE_WINDOW_WEIGHT             = 0.5;    // peso por janela encontrada (mais janelas = mais angulos)
+	protected const float SCORE_TOWER_BONUS               = 6.0;    // bonus para torres de vigia e guaritas
+	protected const float SCORE_BUNKER_BONUS              = 4.0;    // bonus para bunkers/pillboxes
+	protected const float SCORE_LARGE_BUILDING_BONUS      = 4.0;    // bonus extra para construcoes muito grandes (> 500 m³)
+	protected const float SCORE_GARAGE_PENALTY            = -5.0;   // penalidade para garagens e galpoes abertos
+	protected const float SCORE_ROOFTOP_BONUS             = 3.0;    // bonus para construcoes com terraço acessivel
+	protected const float SCORE_SMALL_BUILDING_PENALTY    = -2.0;   // penalidade para construcoes muito pequenas (< 40 m³)
+
+	// Limiares de categoria para classificacao rapida
+	protected const float LARGE_BUILDING_VOLUME_M3        = 500.0;  // acima disso = construcao grande
+	protected const float SMALL_BUILDING_VOLUME_M3        = 40.0;   // abaixo disso = construcao muito pequena
+	protected const float TOWER_MIN_HEIGHT_M              = 4.0;    // altura minima para considerar torre (proxy)
+
 	protected static ref array<IEntity> s_QueryAccumulator;
 
 	static ref array<ref SPT_GarrisonOpening> s_DebugOpenings;
@@ -119,6 +162,11 @@ class SPT_GarrisonDetector
 
 			vector mins, maxs;
 			shell.GetWorldBounds(mins, maxs);
+
+			// Filtra toneis, props e destroços muito pequenos
+			if (!IsValidBuildingForCQB(mins, maxs))
+				continue;
+
 			vector shellCenter = (mins + maxs) * 0.5;
 
 			bool duplicate = false;
@@ -133,6 +181,308 @@ class SPT_GarrisonDetector
 
 			if (!duplicate)
 				outCenters.Insert(shellCenter);
+		}
+	}
+
+	//! Expõe uma lista de construcoes pontuadas e ordenadas por qualidade CQB.
+	//! Filtra toneis, props e predios muito pequenos automaticamente.
+	//! Construcoes com multiplos andares, janelas, escadas e torres de vigia
+	//! recebem pontuacao mais alta e aparecem primeiro no resultado.
+	static void CollectCQBBuildingCenters(
+		BaseWorld world,
+		vector center,
+		float radius,
+		out array<ref SPT_BuildingCQBRecord> outRecords)
+	{
+		outRecords = {};
+		if (!world || radius <= 0)
+			return;
+
+		array<IEntity> buildings = {};
+		s_QueryAccumulator = buildings;
+		world.QueryEntitiesBySphere(center, radius, BuildingFilterCallback, null, EQueryEntitiesFlags.STATIC);
+		s_QueryAccumulator = null;
+
+		foreach (IEntity building : buildings)
+		{
+			IEntity shell = ResolveStructuralShell(building);
+			if (!shell)
+				continue;
+
+			vector mins, maxs;
+			shell.GetWorldBounds(mins, maxs);
+
+			// Filtra toneis, props e destroços muito pequenos
+			if (!IsValidBuildingForCQB(mins, maxs))
+				continue;
+
+			vector shellCenter = (mins + maxs) * 0.5;
+
+			// Deduplica por proximidade do centro
+			bool duplicate = false;
+			foreach (SPT_BuildingCQBRecord existing : outRecords)
+			{
+				if (HorizontalDistSq(existing.m_vCenter, shellCenter) < 4.0)
+				{
+					duplicate = true;
+					break;
+				}
+			}
+			if (duplicate)
+				continue;
+
+			float volume = GetBoundingVolume(mins, maxs);
+			float score = GetBuildingCQBScore(shell, mins, maxs);
+
+			outRecords.Insert(new SPT_BuildingCQBRecord(shellCenter, score, volume));
+		}
+
+		// Ordena da melhor construcao (maior score) para a pior
+		SortBuildingRecords(outRecords);
+	}
+
+	//! Verifica se as dimensoes da bounding box sao compativeis com uma
+	//! construcao real onde um soldado pode ficar em pe e se movimentar.
+	//! Rejeita toneis, props de cenario e destroços muito pequenos.
+	protected static bool IsValidBuildingForCQB(vector mins, vector maxs)
+	{
+		float sizeX = maxs[0] - mins[0];
+		float sizeY = maxs[1] - mins[1];
+		float sizeZ = maxs[2] - mins[2];
+
+		// Altura minima: o soldado precisa ficar em pe
+		if (sizeY < MIN_CQB_BUILDING_HEIGHT_M)
+			return false;
+
+		// Extensao horizontal minima: precisa ser mais largo que um tonel
+		if (sizeX < MIN_CQB_BUILDING_HORIZONTAL_M && sizeZ < MIN_CQB_BUILDING_HORIZONTAL_M)
+			return false;
+
+		// Volume minimo: filtra toneis, cadeiras e props de cenario
+		float volume = sizeX * sizeY * sizeZ;
+		if (volume < MIN_CQB_BUILDING_VOLUME_M3)
+			return false;
+
+		return true;
+	}
+
+	//! Calcula o volume da bounding box em metros cubicos
+	protected static float GetBoundingVolume(vector mins, vector maxs)
+	{
+		float sizeX = maxs[0] - mins[0];
+		float sizeY = maxs[1] - mins[1];
+		float sizeZ = maxs[2] - mins[2];
+		return sizeX * sizeY * sizeZ;
+	}
+
+	//! Pontua uma construcao para CQB com base em dimensoes, portas, janelas e
+	//! heuristicas de nome do prefab. Retorna um score onde valores maiores
+	//! indicam local melhor para combate em ambientes fechados.
+	protected static float GetBuildingCQBScore(IEntity shell, vector mins, vector maxs)
+	{
+		float sizeX = maxs[0] - mins[0];
+		float sizeY = maxs[1] - mins[1];
+		float sizeZ = maxs[2] - mins[2];
+		float volume = sizeX * sizeY * sizeZ;
+		float horizontalArea = sizeX * sizeZ;
+
+		// --- Score baseado em tamanho ---
+		// Volume: usa raiz cubica para achatar a curva (diferenca entre 50m³ e 500m³
+		// importa mais que entre 500m³ e 5000m³)
+		float volumeScore = Math.Sqrt(Math.Sqrt(volume)) * SCORE_VOLUME_WEIGHT;
+
+		// Altura: proxy para numero de andares (cada 2.5m ≈ 1 andar)
+		float heightScore = (sizeY / Y_SLICE_SPACING_M) * SCORE_HEIGHT_WEIGHT;
+
+		// --- Score baseado em componentes (portas e janelas) ---
+		int doorCount = CountDoorsInShell(shell);
+		int windowCount = CountWindowsInShell(shell);
+		float componentScore = doorCount * SCORE_DOOR_WEIGHT + windowCount * SCORE_WINDOW_WEIGHT;
+
+		// --- Heuristicas por nome do prefab ---
+		float nameScore = ClassifyBuildingByPrefabName(shell);
+
+		// --- Bonus de terraço ---
+		float rooftopScore = 0.0;
+		if (HasRooftopPotential(mins, maxs, volume, horizontalArea))
+			rooftopScore = SCORE_ROOFTOP_BONUS;
+
+		// --- Bonus/penalidade por categoria de tamanho ---
+		float categoryScore = 0.0;
+		if (volume >= LARGE_BUILDING_VOLUME_M3)
+			categoryScore = SCORE_LARGE_BUILDING_BONUS;
+		else if (volume < SMALL_BUILDING_VOLUME_M3)
+			categoryScore = SCORE_SMALL_BUILDING_PENALTY;
+
+		// Soma ponderada final
+		float score = volumeScore + heightScore + componentScore + nameScore + rooftopScore + categoryScore;
+
+		return score;
+	}
+
+	//! Conta portas (BaseDoorComponent) na hierarquia da construcao.
+	//! Caminha ate profundidade 10, igual ao WalkForDoors.
+	protected static int CountDoorsInShell(IEntity shell)
+	{
+		int count = 0;
+		CountDoorsRecursive(shell, count, 0);
+		return count;
+	}
+
+	//! Percorre recursivamente os filhos contando portas
+	protected static void CountDoorsRecursive(IEntity entity, out int count, int depth)
+	{
+		if (!entity || depth > 10)
+			return;
+		BaseDoorComponent door = BaseDoorComponent.Cast(entity.FindComponent(BaseDoorComponent));
+		if (door)
+			count++;
+
+		IEntity child = entity.GetChildren();
+		while (child)
+		{
+			CountDoorsRecursive(child, count, depth + 1);
+			child = child.GetSibling();
+		}
+	}
+
+	//! Conta janelas (SCR_WindowHitZone) na hierarquia da construcao.
+	//! Caminha ate profundidade 10, igual ao WalkForOpenings.
+	protected static int CountWindowsInShell(IEntity shell)
+	{
+		int count = 0;
+		CountWindowsRecursive(shell, count, 0);
+		return count;
+	}
+
+	//! Percorre recursivamente os filhos contando janelas
+	protected static void CountWindowsRecursive(IEntity entity, out int count, int depth)
+	{
+		if (!entity || depth > 10)
+			return;
+
+		HitZoneContainerComponent hzc = HitZoneContainerComponent.Cast(entity.FindComponent(HitZoneContainerComponent));
+		if (hzc)
+		{
+			array<HitZone> hitzones = {};
+			hzc.GetAllHitZones(hitzones);
+			foreach (HitZone hz : hitzones)
+			{
+				SCR_WindowHitZone win = SCR_WindowHitZone.Cast(hz);
+				if (win)
+					count++;
+			}
+		}
+
+		IEntity child = entity.GetChildren();
+		while (child)
+		{
+			CountWindowsRecursive(child, count, depth + 1);
+			child = child.GetSibling();
+		}
+	}
+
+	//! Avalia se a construcao tem potencial de terraço acessivel.
+	//! Considera o volume construido vs area horizontal: se o volume e
+	//! pequeno em relacao a area (altura media baixa) e a construcao e
+	//! grande o suficiente, provavelmente tem um terraço plano no topo.
+	protected static bool HasRooftopPotential(vector mins, vector maxs, float volume, float horizontalArea)
+	{
+		// Precisa ter area horizontal significativa
+		if (horizontalArea < 25.0)
+			return false;
+
+		// Altura media = volume / area. Se for baixa (1-2 andares) mas a area
+		// for grande, provavelmente e um terraço.
+		float avgHeight = volume / horizontalArea;
+
+		// Terraços tipicos: area grande com altura media entre 2.5m e 6m
+		// (1 a 2 andares com cobertura plana)
+		if (avgHeight >= 2.0 && avgHeight <= 6.0 && horizontalArea >= 30.0)
+			return true;
+
+		// Construcoes muito altas mas com topo grande tambem podem ter heliponto/terraço
+		float sizeY = maxs[1] - mins[1];
+		if (sizeY >= 6.0 && horizontalArea >= 50.0)
+			return true;
+
+		return false;
+	}
+
+	//! Classifica a construcao com base no caminho do prefab.
+	//! Retorna bonus positivo para torres, bunkers e predios bons,
+	//! e penalidade para garagens, galpoes e construcoes ruins.
+	protected static float ClassifyBuildingByPrefabName(IEntity shell)
+	{
+		if (!shell)
+			return 0.0;
+
+		EntityPrefabData data = shell.GetPrefabData();
+		if (!data)
+			return 0.0;
+
+		string path = data.GetPrefabName();
+		if (path.IsEmpty())
+			return 0.0;
+
+		// --- Bonus alto: torres de vigia e guaritas ---
+		// Nota: caminhos de prefab no Arma sao sempre lowercase
+		if (path.Contains("tower") || path.Contains("watchtower") || path.Contains("guard_tower")
+			|| path.Contains("watch_tower") || path.Contains("guardhouse") || path.Contains("sentry"))
+		{
+			return SCORE_TOWER_BONUS;
+		}
+
+		// --- Bonus medio: bunkers e pillboxes ---
+		if (path.Contains("bunker") || path.Contains("pillbox") || path.Contains("fortification")
+			|| path.Contains("guard_post") || path.Contains("machinegun_nest"))
+		{
+			return SCORE_BUNKER_BONUS;
+		}
+
+		// --- Penalidade: garagens, galpoes e construcoes abertas ---
+		if (path.Contains("garage") || path.Contains("carport") || path.Contains("shed")
+			|| path.Contains("hangar"))
+		{
+			return SCORE_GARAGE_PENALTY;
+		}
+
+		// --- Penalidade leve: banheiros, quiosques, abrigos minusculos ---
+		if (path.Contains("toilet") || path.Contains("outhouse") || path.Contains("kiosk"))
+		{
+			return SCORE_SMALL_BUILDING_PENALTY;
+		}
+
+		// --- Bonus leve: construcoes boas para CQB ---
+		if (path.Contains("barracks") || path.Contains("headquarters") || path.Contains("police")
+			|| path.Contains("military") || path.Contains("armoury") || path.Contains("command"))
+		{
+			return SCORE_BUNKER_BONUS * 0.5;
+		}
+
+		return 0.0;
+	}
+
+	//! Ordena registros de construcao por pontuacao decrescente (melhor primeiro).
+	//! Usa ordenacao por insercao simples – o numero de construcoes por local e pequeno.
+	protected static void SortBuildingRecords(notnull array<ref SPT_BuildingCQBRecord> records)
+	{
+		int n = records.Count();
+		if (n <= 1)
+			return;
+
+		for (int i = 1; i < n; i++)
+		{
+			SPT_BuildingCQBRecord key = records[i];
+			float keyScore = key.m_fScore;
+			int j = i - 1;
+
+			while (j >= 0 && records[j].m_fScore < keyScore)
+			{
+				records[j + 1] = records[j];
+				j = j - 1;
+			}
+			records[j + 1] = key;
 		}
 	}
 

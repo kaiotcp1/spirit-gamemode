@@ -2139,6 +2139,19 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		DebugLog(string.Format("Detector de construcoes retornou %1 centros estruturais em %2m.",
 			buildings.Count(), buildingSearchRadius));
 
+		// Coleta construcoes pontuadas para distribuicao CQB de qualidade.
+		// Construcoes maiores, com varios andares, janelas e torres recebem
+		// prioridade; toneis, props e garagens minusculas sao filtrados.
+		ref array<ref SPT_BuildingCQBRecord> cqbBuildings = new array<ref SPT_BuildingCQBRecord>();
+		SPT_GarrisonDetector.CollectCQBBuildingCenters(
+			GetGame().GetWorld(),
+			location.m_vCenter,
+			buildingSearchRadius,
+			cqbBuildings
+		);
+		DebugLog(string.Format("Detector CQB retornou %1 construcoes pontuadas (de %2 total).",
+			cqbBuildings.Count(), buildings.Count()));
+
 		if (buildings.IsEmpty())
 		{
 			Print(string.Format("[SPT_WorldGarrison] Nenhuma construcao utilizavel ao redor de %1 em %2",
@@ -2158,6 +2171,7 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		location.m_iDesiredUnits = 0;
 		location.m_iTargetManpower = 0;
 		int buildingIndex = 0;
+		int cqbBuildingIndex = 0;
 		int patrolSpawnIndex = 0;
 		array<vector> patrolSpawnPositions = {};
 
@@ -2201,8 +2215,20 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 				patrolSpawnPositions.Insert(spawnCenter);
 				patrolSpawnIndex++;
 			}
+			else if (!cqbBuildings.IsEmpty())
+			{
+				// Distribui grupos CQB priorizando as melhores construcoes:
+				// o primeiro grupo vai para a melhor construcao, o segundo
+				// para a segunda melhor, etc. Quando todas as construcoes
+				// receberam um grupo, recomeca pelas melhores (round-robin).
+				int selectedBuilding = cqbBuildingIndex % cqbBuildings.Count();
+				spawnCenter = cqbBuildings[selectedBuilding].m_vCenter;
+				cqbBuildingIndex++;
+			}
 			else if (!buildings.IsEmpty())
 			{
+				// Fallback: se nao houver construcoes pontuadas para CQB
+				// (raro), usa as construcoes normais embaralhadas
 				int selectedBuilding = buildingIndex % buildings.Count();
 				spawnCenter = buildings[selectedBuilding];
 				buildingIndex++;

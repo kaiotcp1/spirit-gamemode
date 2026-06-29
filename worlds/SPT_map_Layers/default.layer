@@ -15,6 +15,11 @@ $grp GenericEntity : "{B1F6A2439C8D7500}Prefabs/Warfare/SPT_WarfarePoint.et" {
     m_aGarrisonCQBGroupPrefabs {
      "{958039B857396B7B}Prefabs/Groups/BLUFOR/Group_US_MachineGunTeam.et"
      "{6B2A6EE5002D200F}Prefabs/Groups/BLUFOR/Group_US_EngineerTeam.et"
+     "{6B2A6EE5002D200F}Prefabs/Groups/BLUFOR/Group_US_EngineerTeam.et"
+     "{6B2A6EE5002D200F}Prefabs/Groups/BLUFOR/Group_US_EngineerTeam.et"
+     "{35681BE27C302FF5}Prefabs/Groups/BLUFOR/GreenBerets/Group_US_GreenBeret_SentryTeam.et"
+     "{DE747BC9217D383C}Prefabs/Groups/BLUFOR/Group_US_Team_GL.et"
+     "{F65B7BB712F46FEE}Prefabs/Groups/BLUFOR/Group_US_ReconTeam.et"
     }
     m_aGarrisonPatrolGroupPrefabs {
      "{958039B857396B7B}Prefabs/Groups/BLUFOR/Group_US_MachineGunTeam.et"
@@ -23,10 +28,6 @@ $grp GenericEntity : "{B1F6A2439C8D7500}Prefabs/Warfare/SPT_WarfarePoint.et" {
     m_bBattleEnabled 1
     m_iBattleWaveUnitsMin 30
     m_iBattleWaveUnitsMax 60
-    m_fBattleSpawnDistanceMin 1200
-    m_fBattleSpawnDistanceMax 1200
-    m_fBattleSpreadedWeight 1
-    m_fBattleConvoyWeight 1
     m_aBattleGroupPrefabs {
      "{B7AB5D3F8A7ADAE4}Prefabs/Groups/BLUFOR/Group_US_PlatoonHQ.et"
     }
@@ -42,6 +43,11 @@ $grp GenericEntity : "{B1F6A2439C8D7500}Prefabs/Warfare/SPT_WarfarePoint.et" {
     m_ePointType MILITARY_BASE
     m_fRadius 100
     m_iCaptureOrder 2
+    m_fGarrisonSpawnDistance 400
+    m_fGarrisonDespawnDistance 400
+    m_fGarrisonPatrolRadius 200
+    m_iGarrisonSpawnIntervalMs 2000
+    m_fBattleConvoyWeight 0.45
    }
   }
   coords 1387.854 36.219 2365.719
