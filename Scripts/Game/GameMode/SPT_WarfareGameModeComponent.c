@@ -60,12 +60,6 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 	[Attribute("1", desc: "Habilitar notificacoes HUD de transicoes de estado no cliente.")]
 	protected bool m_bEnableHUD;
 
-	[Attribute("1", desc: "Habilitar icones coloridos no mapa.")]
-	protected bool m_bEnableMapMarkers;
-
-	[Attribute("1", desc: "Habilitar icones coloridos no mapa.")]
-	protected bool m_bEnableMapMarkers;
-
 	//-----------------------------------------------------------------------
 	// MEMBROS (SERVIDOR)
 	//-----------------------------------------------------------------------
@@ -121,9 +115,6 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 	//! Flag para evitar notificacao de vitoria duplicada.
 	protected bool m_bClientVictoryNotified;
 
-	//! Canvas widget para desenho de icones no mapa.
-	protected CanvasWidget m_cMapCanvas;
-
 	//-----------------------------------------------------------------------
 	// SINGLETON
 	//-----------------------------------------------------------------------
@@ -149,9 +140,6 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 		m_mClientPointNames = new map<string, string>();
 		m_mClientPointPositions = new map<string, vector>();
 		m_aClientPointOrder = new array<string>();
-
-		// Habilita frame updates para desenho de icones no mapa (cliente)
-		SetEventMask(owner, EntityEvent.FRAME);
 
 		// Servidor: inicializacao normal
 		if (!Replication.IsServer())
@@ -1349,102 +1337,6 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 			if (hintMgr)
 				hintMgr.ShowCustom(message);
 		}
-	}
-
-	//-----------------------------------------------------------------------
-	// MAPA - ICONES (CLIENTE)
-	//-----------------------------------------------------------------------
-
-	override void EOnFrame(IEntity owner, float timeSlice)
-	{
-		super.EOnFrame(owner, timeSlice);
-		DrawMapIcons();
-	}
-
-	protected void DrawMapIcons()
-	{
-		if (!m_bEnableMapMarkers)
-			return;
-
-		SCR_MapEntity mapEntity = SCR_MapEntity.GetMapInstance();
-		if (!mapEntity)
-			return;
-
-		// So desenha quando o mapa esta aberto
-		Widget mapWidget = mapEntity.GetMapWidget();
-		if (!mapWidget)
-		{
-			if (m_cMapCanvas)
-			{
-				m_cMapCanvas = null;
-			}
-			return;
-		}
-
-		// Cria canvas se necessario
-		if (!m_cMapCanvas)
-		{
-			ResourceName layoutRes = "{A6A79ABB08D490BE}UI/Layouts/Map/MapCanvasLayer.layout";
-			Widget w = GetGame().GetWorkspace().CreateWidgets(layoutRes);
-			if (w)
-				m_cMapCanvas = CanvasWidget.Cast(w.FindAnyWidget("Canvas"));
-			if (!m_cMapCanvas)
-				return;
-		}
-
-		ref array<ref CanvasWidgetCommand> cmds = new array<ref CanvasWidgetCommand>();
-
-		foreach (string pointId : m_aClientPointOrder)
-		{
-			vector pos;
-			if (!GetClientPointPosition(pointId, pos))
-				continue;
-
-			SPT_EWarfarePointState state = GetClientPointState(pointId);
-			int fill = GetMapColor(state);
-			int border = ARGB(220, 0, 0, 0);
-
-			int sx, sy;
-			mapEntity.WorldToScreen(pos[0], pos[2], sx, sy, true);
-
-			// Borda
-			PolygonDrawCommand bc = new PolygonDrawCommand();
-			bc.m_iColor = border;
-			bc.m_Vertices = MakeCircle(sx, sy, 11);
-			cmds.Insert(bc);
-
-			// Preenchimento
-			PolygonDrawCommand fc = new PolygonDrawCommand();
-			fc.m_iColor = fill;
-			fc.m_Vertices = MakeCircle(sx, sy, 9);
-			cmds.Insert(fc);
-		}
-
-		if (!cmds.IsEmpty())
-			m_cMapCanvas.SetDrawCommands(cmds);
-	}
-
-	protected array<float> MakeCircle(int cx, int cy, int r)
-	{
-		array<float> v = {};
-		for (int i = 0; i < 24; i++)
-		{
-			float a = i * 2.0 * Math.PI / 24.0;
-			v.Insert(cx + Math.Cos(a) * r);
-			v.Insert(cy + Math.Sin(a) * r);
-		}
-		return v;
-	}
-
-	static int GetMapColor(SPT_EWarfarePointState state)
-	{
-		if (state == SPT_EWarfarePointState.LOCKED)            return ARGB(255, 150, 0, 0);
-		if (state == SPT_EWarfarePointState.FRONTLINE)         return ARGB(255, 220, 30, 30);
-		if (state == SPT_EWarfarePointState.UNDER_ATTACK)      return ARGB(255, 255, 140, 0);
-		if (state == SPT_EWarfarePointState.CLEARED_WAITING)   return ARGB(255, 255, 255, 0);
-		if (state == SPT_EWarfarePointState.CAPTURED_DEFENDING) return ARGB(255, 70, 130, 255);
-		if (state == SPT_EWarfarePointState.CAPTURED)           return ARGB(255, 0, 150, 255);
-		return ARGB(255, 128, 128, 128);
 	}
 
 	//-----------------------------------------------------------------------

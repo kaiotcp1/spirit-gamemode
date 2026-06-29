@@ -1,0 +1,49 @@
+FrameWidgetClass {
+ Name "WarfareMapRoot"
+ "Z Order" 500
+ {
+  CanvasWidgetClass "{599454C9CFD282C8}" {
+   Name "WarfareCanvas"
+   Slot FrameWidgetSlot "{50A4DDC879494989}" {
+    Anchor 0 0 1 1
+   }
+   Color 0.1 0.1 0.12 0.92
+   SizeInUnits 1920 1080
+   Clear 1
+   ClearColor 0.05 0.05 0.08 1
+  }
+  FrameWidgetClass {
+   Name "TitleBar"
+   Slot FrameWidgetSlot "{50A4DDC879494989}" {
+    Anchor 0 0 1 0
+    SizeY 40
+   }
+   Color 0.15 0.15 0.2 1
+   {
+    TextWidgetClass {
+     Name "TitleText"
+     Slot FrameWidgetSlot "{50A4DDC879494989}" {
+      Alignment 0.5 0.5
+     }
+     Color 1 1 1 1
+     Text "MAPA DE GUERRA"
+     Font "{3E7733BAC8C831F6}UI/Fonts/RobotoCondensed/RobotoCondensed_Regular.fnt"
+     "Font Size" 20
+    }
+   }
+  }
+  TextWidgetClass {
+   Name "HintText"
+   Slot FrameWidgetSlot "{50A4DDC879494989}" {
+    Anchor 0 1 1 1
+    PositionY -30
+    SizeY 25
+   }
+   Color 0.6 0.6 0.6 1
+   Text "ESC para fechar"
+   Font "{3E7733BAC8C831F6}UI/Fonts/RobotoCondensed/RobotoCondensed_Regular.fnt"
+   "Font Size" 14
+   Align 1
+  }
+ }
+}
