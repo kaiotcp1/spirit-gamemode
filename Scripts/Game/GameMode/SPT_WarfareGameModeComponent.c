@@ -141,11 +141,11 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 		m_mClientPointPositions = new map<string, vector>();
 		m_aClientPointOrder = new array<string>();
 
+		s_Instance = this;
+
 		// Servidor: inicializacao normal
 		if (!Replication.IsServer())
 			return;
-
-		s_Instance = this;
 
 		m_mPointsById = new map<string, ref SPT_WarfarePointData>();
 		m_aPointOrder = new array<string>();

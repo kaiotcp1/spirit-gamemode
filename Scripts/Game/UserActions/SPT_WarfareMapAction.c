@@ -4,6 +4,10 @@ class SPT_WarfareMapAction : ScriptedUserAction
 {
 	override void PerformAction(IEntity pOwnerEntity, IEntity pUserEntity)
 	{
+		SCR_HintManagerComponent hintMgr = SCR_HintManagerComponent.GetInstance();
+		if (hintMgr)
+			hintMgr.ShowCustom("[SPT] Mapa de Guerra aberto!");
+
 		SPT_UIManagerComponent uiManager = SPT_UIManagerComponent.Cast(pUserEntity.FindComponent(SPT_UIManagerComponent));
 		SPT_WarfareMapUIContext ctx;
 
@@ -15,7 +19,7 @@ class SPT_WarfareMapAction : ScriptedUserAction
 		if (!ctx)
 		{
 			ctx = new SPT_WarfareMapUIContext();
-			ctx.SetLayout("{69B768A5FFFFFFFF}UI/Layouts/WarfareMap.layout");
+			ctx.SetLayout("{D6F41B39A8C27E10}UI/Layouts/WarfareMap.layout");
 			ctx.Init(pUserEntity, null);
 		}
 
