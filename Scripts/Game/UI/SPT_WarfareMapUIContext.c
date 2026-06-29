@@ -4,10 +4,12 @@ class SPT_WarfareMapUIContext : SPT_UIContext
 {
 	protected CanvasWidget m_Canvas;
 	protected float m_fMinX, m_fMaxX, m_fMinZ, m_fMaxZ;
-	protected int m_iScreenW, m_iScreenH;
+	protected float m_fScreenW, m_fScreenH;
+	protected bool m_bBoundsComputed;
 
 	void SPT_WarfareMapUIContext()
 	{
+		m_bBoundsComputed = false;
 		// Em modo standalone, usa polling para drive de frame
 		GetGame().GetCallqueue().CallLater(UpdateStandaloneContext, 100, true);
 	}
@@ -31,11 +33,8 @@ class SPT_WarfareMapUIContext : SPT_UIContext
 		if (m_wRoot)
 		{
 			m_Canvas = CanvasWidget.Cast(m_wRoot.FindAnyWidget("WarfareCanvas"));
-			if (m_Canvas)
-			{
-				m_Canvas.GetScreenSize(m_iScreenW, m_iScreenH);
-			}
 		}
+		GetGame().GetWorkspace().GetScreenSize(m_fScreenW, m_fScreenH);
 		CalcWorldBounds();
 	}
 
@@ -48,26 +47,15 @@ class SPT_WarfareMapUIContext : SPT_UIContext
 	override void RegisterInputs()
 	{
 		super.RegisterInputs();
-		// ESC para fechar
 		if (m_InputManager)
 		{
 			m_InputManager.ActivateContext("SPT_WarfareMapContext");
 		}
 	}
 
-	override void UnregisterInputs()
-	{
-		super.UnregisterInputs();
-	}
-
 	//! Calcula os limites do mundo para normalizar coordenadas.
 	protected void CalcWorldBounds()
 	{
-		m_fMinX = float.MAX;
-		m_fMaxX = float.MIN;
-		m_fMinZ = float.MAX;
-		m_fMaxZ = float.MIN;
-
 		SPT_WarfareGameModeComponent warfare = SPT_WarfareGameModeComponent.GetInstance();
 		if (!warfare)
 			return;
@@ -75,6 +63,29 @@ class SPT_WarfareMapUIContext : SPT_UIContext
 		array<string> pointIds = {};
 		warfare.GetClientPointIds(pointIds);
 
+		if (pointIds.IsEmpty())
+			return;
+
+		// Pega o primeiro ponto para inicializar os bounds
+		vector firstPos;
+		bool hasFirst = false;
+		foreach (string pointId : pointIds)
+		{
+			if (!hasFirst && warfare.GetClientPointPosition(pointId, firstPos))
+			{
+				m_fMinX = firstPos[0];
+				m_fMaxX = firstPos[0];
+				m_fMinZ = firstPos[2];
+				m_fMaxZ = firstPos[2];
+				hasFirst = true;
+				break;
+			}
+		}
+
+		if (!hasFirst)
+			return;
+
+		// Varre todos os pontos
 		foreach (string pointId : pointIds)
 		{
 			vector pos;
@@ -99,34 +110,41 @@ class SPT_WarfareMapUIContext : SPT_UIContext
 		m_fMaxX += dx;
 		m_fMinZ -= dz;
 		m_fMaxZ += dz;
+
+		m_bBoundsComputed = true;
 	}
 
 	//! Converte coordenada do mundo para coordenada da tela.
 	protected void WorldToScreen(float wx, float wz, out int sx, out int sy)
 	{
-		float margin = 60;
-		float usableW = m_iScreenW - margin * 2;
-		float usableH = m_iScreenH - margin * 2 - 50;
+		float margin = 60.0;
+		float usableW = m_fScreenW - margin * 2.0;
+		float usableH = m_fScreenH - margin * 2.0 - 50.0;
 
 		float nx, nz;
-		if (m_fMaxX - m_fMinX > 0)
-			nx = (wx - m_fMinX) / (m_fMaxX - m_fMinX);
+		float rangeX = m_fMaxX - m_fMinX;
+		float rangeZ = m_fMaxZ - m_fMinZ;
+
+		if (rangeX > 0.0)
+			nx = (wx - m_fMinX) / rangeX;
 		else
 			nx = 0.5;
 
-		if (m_fMaxZ - m_fMinZ > 0)
-			nz = (wz - m_fMinZ) / (m_fMaxZ - m_fMinZ);
+		if (rangeZ > 0.0)
+			nz = (wz - m_fMinZ) / rangeZ;
 		else
 			nz = 0.5;
 
 		sx = margin + nx * usableW;
-		sy = margin + 50 + (1.0 - nz) * usableH;
+		sy = margin + 50.0 + (1.0 - nz) * usableH;
 	}
 
 	//! Desenha os icones no canvas.
 	protected void DrawWarfareIcons()
 	{
 		if (!m_Canvas)
+			return;
+		if (!m_bBoundsComputed)
 			return;
 
 		SPT_WarfareGameModeComponent warfare = SPT_WarfareGameModeComponent.GetInstance();
@@ -162,17 +180,6 @@ class SPT_WarfareMapUIContext : SPT_UIContext
 			fc.m_iColor = fillColor;
 			fc.m_Vertices = MakeCircle(sx, sy, 12);
 			cmds.Insert(fc);
-
-			// Nome do ponto
-			string name = warfare.GetClientPointName(pointId);
-			if (!name.IsEmpty())
-			{
-				TextDrawCommand tc = new TextDrawCommand();
-				tc.m_sText = name;
-				tc.m_vPosition = Vector(sx + 18, sy - 6, 0);
-				tc.m_iColor = ARGB(255, 255, 255, 255);
-				cmds.Insert(tc);
-			}
 		}
 
 		if (!cmds.IsEmpty())
