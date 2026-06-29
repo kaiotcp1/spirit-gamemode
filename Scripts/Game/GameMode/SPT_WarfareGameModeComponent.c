@@ -63,8 +63,8 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 	[Attribute("1", desc: "Habilitar icones coloridos no mapa.")]
 	protected bool m_bEnableMapMarkers;
 
-	[Attribute("$SPTGAME:UI/Layouts/Map/WarfareMapIcons.layout", UIWidgets.ResourceNamePicker, desc: "Layout do CanvasWidget para icones no mapa.", params: "layout")]
-	protected ResourceName m_sMapCanvasLayout;
+	[Attribute("1", desc: "Habilitar icones coloridos no mapa.")]
+	protected bool m_bEnableMapMarkers;
 
 	//-----------------------------------------------------------------------
 	// MEMBROS (SERVIDOR)
@@ -109,9 +109,6 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 	//! Estado de cada ponto no cliente (atualizado via RPC).
 	protected ref map<string, SPT_EWarfarePointState> m_mClientPointStates;
 
-	//! Estado anterior para detectar transicoes.
-	protected ref map<string, SPT_EWarfarePointState> m_mClientPreviousStates;
-
 	//! Nomes de exibicao dos pontos no cliente.
 	protected ref map<string, string> m_mClientPointNames;
 
@@ -124,18 +121,8 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 	//! Flag para evitar notificacao de vitoria duplicada.
 	protected bool m_bClientVictoryNotified;
 
-	//-----------------------------------------------------------------------
-	// MEMBROS (CLIENTE - icones no mapa)
-	//-----------------------------------------------------------------------
-
-	//! Widget raiz do canvas de icones no mapa.
-	protected Widget m_wMapCanvasRoot;
-
-	//! CanvasWidget para desenho dos icones.
+	//! Canvas widget para desenho de icones no mapa.
 	protected CanvasWidget m_cMapCanvas;
-
-	//! Verdadeiro enquanto o mapa esta aberto.
-	protected bool m_bMapOpen;
 
 	//-----------------------------------------------------------------------
 	// SINGLETON
@@ -157,16 +144,14 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 		if (SCR_Global.IsEditMode())
 			return;
 
-		// Inicializa estruturas do cliente (usadas nos handlers RPC)
+		// Inicializa estruturas do cliente
 		m_mClientPointStates = new map<string, SPT_EWarfarePointState>();
-		m_mClientPreviousStates = new map<string, SPT_EWarfarePointState>();
 		m_mClientPointNames = new map<string, string>();
 		m_mClientPointPositions = new map<string, vector>();
 		m_aClientPointOrder = new array<string>();
 
-		// Inscreve nos eventos do mapa (cliente)
-		SCR_MapEntity.GetOnMapOpen().Insert(OnClientMapOpen);
-		SCR_MapEntity.GetOnMapClose().Insert(OnClientMapClose);
+		// Habilita frame updates para desenho de icones no mapa (cliente)
+		SetEventMask(owner, EntityEvent.FRAME);
 
 		// Servidor: inicializacao normal
 		if (!Replication.IsServer())
@@ -186,15 +171,8 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 		GetGame().GetCallqueue().CallLater(InitializeWarfare, 2000, false);
 	}
 
-	//! Frame update - desenha icones no mapa quando aberto.
-	override void EOnFrame(IEntity owner, float timeSlice)
-	{
-		super.EOnFrame(owner, timeSlice);
-
-		if (m_bMapOpen && m_bEnableMapMarkers)
-			DrawMapIcons();
-	}
-
+	//-----------------------------------------------------------------------
+	// LIFECYCLE
 	//-----------------------------------------------------------------------
 	// INICIALIZACAO
 	//-----------------------------------------------------------------------
@@ -1377,49 +1355,44 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 	// MAPA - ICONES (CLIENTE)
 	//-----------------------------------------------------------------------
 
-	//! Chamado quando o jogador abre o mapa.
-	protected void OnClientMapOpen(MapConfiguration config)
+	override void EOnFrame(IEntity owner, float timeSlice)
 	{
-		if (!m_bEnableMapMarkers)
-			return;
-
-		// Cria o canvas de desenho
-		m_wMapCanvasRoot = GetGame().GetWorkspace().CreateWidgets(m_sMapCanvasLayout);
-		if (m_wMapCanvasRoot)
-			m_cMapCanvas = CanvasWidget.Cast(m_wMapCanvasRoot.FindAnyWidget("Canvas"));
-
-		m_bMapOpen = true;
-
-		// Registra update para desenhar a cada frame
-		SetEventMask(GetOwner(), EntityEvent.FRAME);
+		super.EOnFrame(owner, timeSlice);
+		DrawMapIcons();
 	}
 
-	//! Chamado quando o jogador fecha o mapa.
-	protected void OnClientMapClose(MapConfiguration config)
-	{
-		m_bMapOpen = false;
-
-		if (m_wMapCanvasRoot)
-		{
-			m_wMapCanvasRoot.RemoveFromHierarchy();
-			m_wMapCanvasRoot = null;
-		}
-		m_cMapCanvas = null;
-
-		ClearEventMask(GetOwner(), EntityEvent.FRAME);
-	}
-
-	//! Desenha os icones no mapa (chamado no EOnFrame quando mapa aberto).
 	protected void DrawMapIcons()
 	{
-		if (!m_bMapOpen || !m_cMapCanvas)
+		if (!m_bEnableMapMarkers)
 			return;
 
 		SCR_MapEntity mapEntity = SCR_MapEntity.GetMapInstance();
 		if (!mapEntity)
 			return;
 
-		ref array<ref CanvasWidgetCommand> allCommands = new array<ref CanvasWidgetCommand>();
+		// So desenha quando o mapa esta aberto
+		Widget mapWidget = mapEntity.GetMapWidget();
+		if (!mapWidget)
+		{
+			if (m_cMapCanvas)
+			{
+				m_cMapCanvas = null;
+			}
+			return;
+		}
+
+		// Cria canvas se necessario
+		if (!m_cMapCanvas)
+		{
+			ResourceName layoutRes = "{A6A79ABB08D490BE}UI/Layouts/Map/MapCanvasLayer.layout";
+			Widget w = GetGame().GetWorkspace().CreateWidgets(layoutRes);
+			if (w)
+				m_cMapCanvas = CanvasWidget.Cast(w.FindAnyWidget("Canvas"));
+			if (!m_cMapCanvas)
+				return;
+		}
+
+		ref array<ref CanvasWidgetCommand> cmds = new array<ref CanvasWidgetCommand>();
 
 		foreach (string pointId : m_aClientPointOrder)
 		{
@@ -1428,44 +1401,45 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 				continue;
 
 			SPT_EWarfarePointState state = GetClientPointState(pointId);
-			int fillColor = GetMapIconColor(state);
-			int borderColor = ARGB(200, 0, 0, 0);
+			int fill = GetMapColor(state);
+			int border = ARGB(220, 0, 0, 0);
 
-			int screenX, screenY;
-			if (!mapEntity.WorldToScreen(pos[0], pos[2], screenX, screenY, true))
-				continue;
+			int sx, sy;
+			mapEntity.WorldToScreen(pos[0], pos[2], sx, sy, true);
 
-			// Borda (circulo preto maior)
-			PolygonDrawCommand borderCmd = CreateCircleCmd(screenX, screenY, 12, borderColor);
-			allCommands.Insert(borderCmd);
+			// Borda
+			PolygonDrawCommand bc = new PolygonDrawCommand();
+			bc.m_iColor = border;
+			bc.m_Vertices = MakeCircle(sx, sy, 11);
+			cmds.Insert(bc);
 
-			// Preenchimento colorido
-			PolygonDrawCommand fillCmd = CreateCircleCmd(screenX, screenY, 10, fillColor);
-			allCommands.Insert(fillCmd);
+			// Preenchimento
+			PolygonDrawCommand fc = new PolygonDrawCommand();
+			fc.m_iColor = fill;
+			fc.m_Vertices = MakeCircle(sx, sy, 9);
+			cmds.Insert(fc);
 		}
 
-		if (!allCommands.IsEmpty())
-			m_cMapCanvas.SetDrawCommands(allCommands);
+		if (!cmds.IsEmpty())
+			m_cMapCanvas.SetDrawCommands(cmds);
 	}
 
-	protected PolygonDrawCommand CreateCircleCmd(int cx, int cy, int radius, int color)
+	protected array<float> MakeCircle(int cx, int cy, int r)
 	{
-		PolygonDrawCommand cmd = new PolygonDrawCommand();
-		cmd.m_iColor = color;
-		cmd.m_Vertices = new array<float>();
+		array<float> v = {};
 		for (int i = 0; i < 24; i++)
 		{
-			float a = i * (2.0 * Math.PI / 24.0);
-			cmd.m_Vertices.Insert(cx + Math.Cos(a) * radius);
-			cmd.m_Vertices.Insert(cy + Math.Sin(a) * radius);
+			float a = i * 2.0 * Math.PI / 24.0;
+			v.Insert(cx + Math.Cos(a) * r);
+			v.Insert(cy + Math.Sin(a) * r);
 		}
-		return cmd;
+		return v;
 	}
 
-	static int GetMapIconColor(SPT_EWarfarePointState state)
+	static int GetMapColor(SPT_EWarfarePointState state)
 	{
 		if (state == SPT_EWarfarePointState.LOCKED)            return ARGB(255, 150, 0, 0);
-		if (state == SPT_EWarfarePointState.FRONTLINE)         return ARGB(255, 255, 50, 50);
+		if (state == SPT_EWarfarePointState.FRONTLINE)         return ARGB(255, 220, 30, 30);
 		if (state == SPT_EWarfarePointState.UNDER_ATTACK)      return ARGB(255, 255, 140, 0);
 		if (state == SPT_EWarfarePointState.CLEARED_WAITING)   return ARGB(255, 255, 255, 0);
 		if (state == SPT_EWarfarePointState.CAPTURED_DEFENDING) return ARGB(255, 70, 130, 255);
