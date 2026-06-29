@@ -157,7 +157,7 @@ class SPT_RoadNetworkService
 		forward = forward.Normalized();
 		vector right = Vector(-forward[2], 0, forward[0]);
 		vector result = road.points[pointIndex] + right * road.width * 0.25;
-		result[1] += 0.3;
+		result[1] = result[1] + 0.3;
 		return result;
 	}
 }
