@@ -1017,6 +1017,13 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 		{
 			ChangePointState(pointId, SPT_EWarfarePointState.CAPTURED);
 			RecalculateFrontline();
+
+			// Pontos que acabaram de entrar na frente precisam de
+			// monitoramento de primeira baixa ativado.
+			SPT_WorldGarrisonManagerComponent garrisonMgr = SPT_WorldGarrisonManagerComponent.GetInstance();
+			if (garrisonMgr)
+				StartMonitoringNewFrontlinePoints(garrisonMgr);
+
 			CheckVictory();
 		}
 	}

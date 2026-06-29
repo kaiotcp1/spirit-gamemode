@@ -95,6 +95,10 @@ class SPT_GarrisonLocation : Managed
 	//! apos todos os grupos desta localizacao terem sido eliminados.
 	bool m_bHasCachedSnapshot;
 	bool m_bCleared;
+	//! Verdadeiro quando o Warfare solicitou monitoramento de primeira
+	//! baixa nesta localizacao. Desacoplado de m_bActive para evitar que
+	//! locais LOCKED disparem eventos de baixa prematuramente.
+	bool m_bMonitoringEnabled;
 	//! Verdadeiro quando a primeira baixa da guarnicao foi detectada.
 	//! Usado pelo Warfare para disparar reforcos uma unica vez.
 	bool m_bFirstCasualtyTriggered;
@@ -1442,21 +1446,36 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 	}
 
 	//! Inicia o monitoramento de primeira baixa para uma localizacao.
-	//! Captura o manpower inicial como referencia. Chamado pelo Warfare quando
-	//! um ponto entra na frente de batalha.
+	//! O snapshot do manpower inicial e adiado ate que todos os grupos
+	//! terminem de spawnar, para nao capturar um valor parcial.
+	//! Chamado pelo Warfare quando um ponto entra na frente de batalha.
 	bool StartMonitoringLocation(string locationId)
 	{
 		SPT_GarrisonLocation location = FindLocationById(locationId);
 		if (!location || location.m_bSafe)
 			return false;
 
-		location.SnapInitialManpower();
-		DebugLog(string.Format("Monitoramento iniciado | id=%1 | manpowerInicial=%2",
-			locationId, location.m_iInitialGarrisonManpower));
+		location.m_bMonitoringEnabled = true;
+
+		// Se o spawn ja terminou, captura o manpower agora.
+		// Caso contrario, o snapshot sera feito em CompletePendingGroup
+		// ou no proximo ciclo de MonitorGarrisonState.
+		if (!location.m_bSpawning)
+		{
+			location.SnapInitialManpower();
+			DebugLog(string.Format("Monitoramento iniciado | id=%1 | manpowerInicial=%2",
+				locationId, location.m_iInitialGarrisonManpower));
+		}
+		else
+		{
+			DebugLog(string.Format("Monitoramento agendado (spawn em andamento) | id=%1",
+				locationId));
+		}
 		return true;
 	}
 
-	//! Verifica todas as localizacoes ativas por eventos de estado da guarnicao.
+	//! Verifica todas as localizacoes com monitoramento ativo por eventos
+	//! de estado da guarnicao (primeira baixa e guarnicao eliminada).
 	//! Chamado periodicamente via CallLater.
 	protected void MonitorGarrisonState()
 	{
@@ -1467,13 +1486,20 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			if (!location.m_bActive)
 				continue;
 
-			// Se o monitoramento foi iniciado mas a guarnicao ainda nao
-			// estava ativa (manpowerInicial=0), re-captura agora que
-			// a guarnicao esta ativa e tem unidades.
+			// Apenas localizacoes com monitoramento explicito (via
+			// StartMonitoringLocation) disparam eventos de baixa.
+			// Isso impede que pontos LOCKED ou nao-inicializados
+			// disparem OnGarrisonFirstCasualty prematuramente.
+			if (!location.m_bMonitoringEnabled)
+				continue;
+
+			// Se o monitoramento foi ativado mas o snapshot ainda nao
+			// foi capturado (spawn estava em andamento), captura agora
+			// que a guarnicao esta ativa e estavel.
 			if (location.m_iInitialGarrisonManpower <= 0)
 			{
 				int currentGarrison = location.GetGarrisonManpower();
-				if (currentGarrison > 0)
+				if (currentGarrison > 0 && !location.m_bSpawning)
 				{
 					location.SnapInitialManpower();
 					Print(string.Format("[SPT_WorldGarrison] Monitoramento re-capturado | id=%1 | nome=%2 | manpowerInicial=%3",
@@ -3104,8 +3130,28 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		if (location.m_iPendingGroups > 0)
 			return;
 
+		// So finaliza o estado de spawn quando TODOS os grupos da fila
+		// foram processados pelo DoSpawnSingle. Sem esta guarda,
+		// CompletePendingGroup do primeiro grupo zera m_iPendingGroups
+		// enquanto os demais ainda estao na fila, causando snapshot
+		// prematuro do manpower.
+		if (location.m_iQueuedSpawnUnits > 0)
+			return;
+
 		location.m_bSpawning = false;
 		location.m_bActive = location.m_iSuccessfulGroups > 0;
+
+		// Se o Warfare pediu monitoramento enquanto o spawn ainda estava
+		// em andamento, captura o manpower inicial agora que esta estavel.
+		if (location.m_bMonitoringEnabled && location.m_iInitialGarrisonManpower <= 0)
+		{
+			location.SnapInitialManpower();
+			Print(string.Format("[SPT_WorldGarrison] Monitoramento ativado pos-spawn | id=%1 | nome=%2 | manpowerInicial=%3",
+				location.m_sLocationId,
+				location.m_sName,
+				location.m_iInitialGarrisonManpower));
+		}
+
 		location.RefreshClearedState();
 
 		if (location.m_bActive)
