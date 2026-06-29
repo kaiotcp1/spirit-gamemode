@@ -57,8 +57,11 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 	[Attribute("1200", desc: "Distancia maxima (metros) para criar links automaticos entre pontos vizinhos quando nao ha links manuais.")]
 	protected float m_fAutoNeighborDistance;
 
+	[Attribute("1", desc: "Habilitar notificacoes HUD de transicoes de estado no cliente.")]
+	protected bool m_bEnableHUD;
+
 	//-----------------------------------------------------------------------
-	// MEMBROS
+	// MEMBROS (SERVIDOR)
 	//-----------------------------------------------------------------------
 
 	protected static SPT_WarfareGameModeComponent s_Instance;
@@ -69,7 +72,7 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 	//! Ordem estavel dos IDs para iteracao deterministica.
 	protected ref array<string> m_aPointOrder;
 
-	//! Estado atual de cada ponto.
+	//! Estado atual de cada ponto (servidor).
 	protected ref map<string, SPT_EWarfarePointState> m_mPointStates;
 
 	//! Flag de captura: verdadeiro se o ponto ja foi capturado pelo jogador.
@@ -92,6 +95,22 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 
 	//! Evento publico disparado quando a campanha e vencida.
 	protected ref ScriptInvoker m_OnWarfareVictory = new ScriptInvoker();
+
+	//-----------------------------------------------------------------------
+	// MEMBROS (CLIENTE - estado visual)
+	//-----------------------------------------------------------------------
+
+	//! Estado de cada ponto no cliente (atualizado via RPC).
+	protected ref map<string, SPT_EWarfarePointState> m_mClientPointStates;
+
+	//! Estado anterior para detectar transicoes.
+	protected ref map<string, SPT_EWarfarePointState> m_mClientPreviousStates;
+
+	//! Nomes de exibicao dos pontos no cliente.
+	protected ref map<string, string> m_mClientPointNames;
+
+	//! Flag para evitar notificacao de vitoria duplicada.
+	protected bool m_bClientVictoryNotified;
 
 	//-----------------------------------------------------------------------
 	// SINGLETON
@@ -125,6 +144,11 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 		m_aHQIds = new array<string>();
 		m_aFrontlineIds = new array<string>();
 		m_aPendingStateUpdates = new array<ref SPT_WarfarePointStateSnapshot>();
+
+		// Inicializa estruturas do cliente (usadas nos handlers RPC)
+		m_mClientPointStates = new map<string, SPT_EWarfarePointState>();
+		m_mClientPreviousStates = new map<string, SPT_EWarfarePointState>();
+		m_mClientPointNames = new map<string, string>();
 
 		Print("[SPT_Warfare] Inicializando componente de GameMode...");
 		GetGame().GetCallqueue().CallLater(InitializeWarfare, 2000, false);
@@ -1121,6 +1145,24 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 	//! Evento publico de vitoria. Inscreva-se via GetOnWarfareVictory().Insert().
 	ScriptInvoker GetOnWarfareVictory() { return m_OnWarfareVictory; }
 
+	//! Retorna o estado atual de um ponto no cliente (atualizado via RPC).
+	SPT_EWarfarePointState GetClientPointState(string pointId)
+	{
+		return m_mClientPointStates.Get(pointId);
+	}
+
+	//! Retorna o nome de exibicao de um ponto no cliente.
+	string GetClientPointName(string pointId)
+	{
+		if (m_mClientPointNames.Contains(pointId))
+		{
+			string name = m_mClientPointNames.Get(pointId);
+			if (!name.IsEmpty())
+				return name;
+		}
+		return pointId;
+	}
+
 	//-----------------------------------------------------------------------
 	// REPLICACAO DE ESTADO
 	//-----------------------------------------------------------------------
@@ -1130,12 +1172,28 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 	{
 		foreach (string pointId : m_aPointOrder)
 		{
+			SPT_WarfarePointData data = m_mPointsById.Get(pointId);
 			int stateRaw = GetPointState(pointId);
 			int capturedRaw;
 			if (IsPointCaptured(pointId))
 				capturedRaw = 1;
 			else
 				capturedRaw = 0;
+
+			// Envia registro do ponto (nome, posicao, tipo)
+			if (data)
+			{
+				string name = data.m_sDisplayName;
+				int typeRaw = data.m_ePointType;
+				int isHQ;
+				if (data.m_bIsHQ)
+					isHQ = 1;
+				else
+					isHQ = 0;
+
+				RpcDo_RegisterPoint(pointId, name, typeRaw, data.m_vCenter[0], data.m_vCenter[2], isHQ);
+				Rpc(RpcDo_RegisterPoint, pointId, name, typeRaw, data.m_vCenter[0], data.m_vCenter[2], isHQ);
+			}
 
 			RpcDo_PointStateChanged(pointId, stateRaw, capturedRaw, 0, -1);
 			Rpc(RpcDo_PointStateChanged, pointId, stateRaw, capturedRaw, 0, -1);
@@ -1164,29 +1222,91 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 		m_aPendingStateUpdates.Clear();
 	}
 
+	//! RPC de registro do ponto (nome, posicao, tipo) - enviado no estado inicial.
+	[RplRpc(RplChannel.Reliable, RplRcver.Broadcast)]
+	protected void RpcDo_RegisterPoint(string pointId, string name, int typeRaw, float posX, float posZ, int isHQ)
+	{
+		m_mClientPointNames.Set(pointId, name);
+	}
+
 	//! RPC simples com tipos basicos: string, int, int (bool como 0/1).
 	//! Clientes processam a atualizacao de estado de um ponto.
 	[RplRpc(RplChannel.Reliable, RplRcver.Broadcast)]
 	protected void RpcDo_PointStateChanged(string pointId, int stateRaw, int capturedRaw, int manpower, int waveIndex)
 	{
-		// Converte int para enum no cliente
-		SPT_EWarfarePointState state = stateRaw;
-		bool captured;
-		if (capturedRaw != 0)
-			captured = true;
-		else
-			captured = false;
+		SPT_EWarfarePointState newState = stateRaw;
 
-		// Clientes armazenam estado localmente (implementado na Fase C)
-		Print(string.Format("[SPT_Warfare] Estado do ponto atualizado | id=%1 | state=%2 | captured=%3 | manpower=%4 | wave=%5",
-			pointId, state, captured, manpower, waveIndex), LogLevel.DEBUG);
+		// Obtem estado anterior para detectar transicao
+		SPT_EWarfarePointState oldState = SPT_EWarfarePointState.LOCKED;
+		if (m_mClientPointStates.Contains(pointId))
+			oldState = m_mClientPointStates.Get(pointId);
+
+		// Atualiza estado local
+		m_mClientPointStates.Set(pointId, newState);
+
+		// Notifica transicao se houve mudanca
+		if (newState != oldState && m_bEnableHUD)
+		{
+			NotifyClientTransition(pointId, oldState, newState, manpower, waveIndex);
+		}
 	}
 
 	[RplRpc(RplChannel.Reliable, RplRcver.Broadcast)]
 	protected void RpcDo_WarfareVictory()
 	{
-		// Clientes recebem notificacao de vitoria (implementado na Fase C)
-		Print("[SPT_Warfare] VITORIA! Todos os pontos foram capturados.");
+		if (m_bClientVictoryNotified)
+			return;
+
+		m_bClientVictoryNotified = true;
+
+		if (m_bEnableHUD)
+		{
+			SCR_HintManagerComponent hintMgr = SCR_HintManagerComponent.GetInstance();
+			if (hintMgr)
+				hintMgr.ShowCustom("VITORIA! Todas as areas foram conquistadas.");
+		}
+	}
+
+	//-----------------------------------------------------------------------
+	// NOTIFICACOES HUD (CLIENTE)
+	//-----------------------------------------------------------------------
+
+	protected void NotifyClientTransition(string pointId, SPT_EWarfarePointState oldState,
+		SPT_EWarfarePointState newState, int manpower, int waveIndex)
+	{
+		string pointName = GetClientPointName(pointId);
+		string message;
+
+		if (newState == SPT_EWarfarePointState.UNDER_ATTACK)
+		{
+			if (oldState == SPT_EWarfarePointState.FRONTLINE)
+				message = string.Format("%1 sob ataque! Reforcos inimigos a caminho.", pointName);
+			else
+				message = string.Format("%1 sob ataque!", pointName);
+		}
+		else if (newState == SPT_EWarfarePointState.CLEARED_WAITING)
+		{
+			message = string.Format("%1: area limpa — permaneca no local para confirmar.", pointName);
+		}
+		else if (newState == SPT_EWarfarePointState.CAPTURED_DEFENDING)
+		{
+			message = string.Format("%1 capturada! Prepare a defesa — reforcos chegando.", pointName);
+		}
+		else if (newState == SPT_EWarfarePointState.CAPTURED)
+		{
+			message = string.Format("%1 conquistada. Area segura.", pointName);
+		}
+		else if (newState == SPT_EWarfarePointState.FRONTLINE)
+		{
+			message = string.Format("%1 disponivel para ataque.", pointName);
+		}
+
+		if (!message.IsEmpty())
+		{
+			SCR_HintManagerComponent hintMgr = SCR_HintManagerComponent.GetInstance();
+			if (hintMgr)
+				hintMgr.ShowCustom(message);
+		}
 	}
 
 	//-----------------------------------------------------------------------
