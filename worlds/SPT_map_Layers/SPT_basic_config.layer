@@ -103,6 +103,9 @@ SCR_BaseGameMode GameModeSF : "{ECEEDB2D3737204B}Prefabs/Systems/ScenarioFramewo
  }
  coords 1891.659 11.326 1821.161
 }
+SPT_WarfareMapProxy "{B72C51EA34D8F930}Prefabs/WarfareMap/SPT_WarfareMapProxy.et" {
+ coords 1891.659 15.0 1830.161
+}
 ScriptedChatEntity ScriptedChatEntity : "{F69BC912AC8236F9}Prefabs/MP/ScriptedChatEntity.et" {
  coords 1891.659 12.065 1827.161
 }
