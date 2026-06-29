@@ -6,6 +6,25 @@ class SPT_WarfareMapUIContext : SPT_UIContext
 	protected float m_fMinX, m_fMaxX, m_fMinZ, m_fMaxZ;
 	protected int m_iScreenW, m_iScreenH;
 
+	void SPT_WarfareMapUIContext()
+	{
+		// Em modo standalone, usa polling para drive de frame
+		GetGame().GetCallqueue().CallLater(UpdateStandaloneContext, 100, true);
+	}
+
+	void ~SPT_WarfareMapUIContext()
+	{
+		GetGame().GetCallqueue().Remove(UpdateStandaloneContext);
+	}
+
+	protected void UpdateStandaloneContext()
+	{
+		if (!m_bIsActive)
+			return;
+
+		EOnFrame(m_Owner, 0.1);
+	}
+
 	override void ShowLayout()
 	{
 		super.ShowLayout();
