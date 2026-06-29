@@ -128,7 +128,7 @@ class SPT_GarrisonLocation
     int m_iMaxBudget;          // Budget máximo (definido por Attribute)
     int m_iBudgetRemaining;    // Reserva ainda não mobilizada
     int m_iTargetManpower;     // Tamanho desejado da guarnição ativa
-    bool m_bCleared;           // Sem manpower e sem reserva
+    bool m_bCleared;           // Guarnição local completamente eliminada
 
     int GetTotalManpower();    // Derivado: vivos + cached + spawnando
 }
@@ -146,10 +146,11 @@ protected int m_iLocationBudget;
 - O spawn inicial consome budget até `m_iTargetManpower` ou até a reserva zerar
 - Restaurar um sobrevivente do cache não consome budget novamente
 - Mortes reduzem o manpower, mas não descontam novamente o budget
-- Em um stream-in posterior, a localização pode preencher a diferença até
-  `m_iTargetManpower`, consumindo a reserva restante
+- Stream-in restaura exclusivamente sobreviventes; nunca preenche baixas
 - `GetTotalManpower()` deve ser calculado, não armazenado, para evitar estado obsoleto
-- Quando `GetTotalManpower() == 0` e `m_iBudgetRemaining == 0`, marcar `m_bCleared`
+- Quando o manpower da guarnição chegar a zero, marcar `m_bCleared` mesmo que
+  ainda exista reserva
+- A reserva restante só pode ser usada por uma batalha iniciada explicitamente
 - `m_iLocationBudget == 0` mantém o comportamento ilimitado explicitamente configurado
 
 **Arquivos referência JWK:**
@@ -165,11 +166,11 @@ protected int m_iLocationBudget;
 - Budget inicializado individualmente para cada `SPT_GarrisonLocation`
 - Spawn inicial limitado pelo budget, mantendo o manpower-alvo original
 - Sobreviventes do cache restaurados sem novo custo
-- Déficit preenchido por reforços enquanto houver reserva
+- Stream-in separado de reforços: nenhuma tropa nova é criada ao retornar
 - `GetTotalManpower()` derivado de agentes ativos, filas de grupo e cache
-- Local marcado como limpo somente quando manpower e reserva chegam a zero
+- Local marcado como limpo quando a guarnição é eliminada; budget não bloqueia limpeza
 
-**Validação manual esperada com budget 50 e alvo 31:**
+**Validação histórica anterior, substituída pela separação entre cache e batalha:**
 1. Spawn inicial: `manpower=31/31`, `budgetRestante=19`
 2. Após perder 16 e fazer stream-out/in: restaurar 15, mobilizar 16 reforços,
    terminar novamente em `31/31`, `budgetRestante=3`
@@ -178,13 +179,38 @@ protected int m_iLocationBudget;
 4. Após eliminar os últimos 3 e fazer stream-out: `manpower=0`,
    `budgetRestante=0`, `limpo=1`
 
-**Validação manual concluída em 2026-06-28:**
+**Validação manual histórica concluída em 2026-06-28:**
 - Spawn inicial mobilizou `31/31` unidades e preservou `19` de reserva
 - Quatro sobreviventes foram restaurados sem custo e os `19` reforços restantes
   foram mobilizados, resultando em `23/31` e `budgetRestante=0`
 - Um novo ciclo restaurou as `23` unidades sem criar reforços
 - Após a eliminação total, o local registrou `manpower=0`,
   `budgetRestante=0`, `limpo=1` e não voltou a gerar tropas
+
+### FASE 3.1 — Batalhas e ondas explícitas
+
+O budget remanescente não pertence ao stream-in. Ele é consumido somente após
+`StartLocationBattle(position)`, que planeja ondas com budget compartilhado e
+debita as unidades efetivamente criadas.
+
+**API pública:**
+- `StartLocationBattle(vector position)`
+- `CancelLocationBattle(vector position)`
+- `IsLocationBattleActive(vector position)`
+
+**Ritmo padrão:**
+- Primeira onda após 30–90 segundos
+- Próximas ondas após 3–7 minutos ou abaixo de 50% de sobreviventes
+- Ondas de 10–30 unidades, limitadas pela reserva da localização
+
+**Estratégias:**
+- `CONCENTRATED`: grupos partem de uma mesma direção
+- `SPREADED`: grupos distribuídos ao redor do objetivo
+- `CONVOY`: veículos configuráveis com grupos de tripulação, formados em estrada
+- Falha/ausência do dataset viário faz fallback para `SPREADED`
+
+O dataset é gerado no World Editor pela ferramenta **SPT Road Network** e
+carregado no servidor pelo caminho configurado no manager.
 
 ---
 
@@ -327,7 +353,8 @@ protected ref ScriptInvoker m_OnLocationCleared; // (SPT_GarrisonLocation)
 |------|--------|------|
 | 1. Histerese | ✅ Concluído | 2026-06-28 |
 | 2. Caching | ✅ Concluído | 2026-06-28 |
-| 3. Orçamento | ✅ Concluído | 2026-06-28 |
-| 4. Spawn Assíncrono | ⬜ Pendente | — |
+| 3. Orçamento | 🟨 Corrigido, aguardando revalidação | 2026-06-28 |
+| 3.1 Batalhas e ondas | 🟨 Implementado, aguardando validação | 2026-06-28 |
+| 4. Spawn Assíncrono | ✅ Concluído | 2026-06-28 |
 | 5. Eventos | ⬜ Pendente | — |
 | 6. Persistência | ⬜ Pendente | — |
