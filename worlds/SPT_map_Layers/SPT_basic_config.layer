@@ -72,8 +72,6 @@ SCR_BaseGameMode GameModeSF : "{ECEEDB2D3737204B}Prefabs/Systems/ScenarioFramewo
    m_bDefaultRequiresTool 0
   }
   SPT_WarfareGameModeComponent "{69BA190E4062431D}" {
-   m_bDebug 1
-   m_fAutoNeighborDistance 1500
   }
   SPT_WorldGarrisonManagerComponent "{69B768A2ED652C20}" {
    m_fSpawnDistance 600

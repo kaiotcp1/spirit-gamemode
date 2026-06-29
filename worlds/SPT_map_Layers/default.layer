@@ -1,3 +1,38 @@
+$grp GenericEntity : "{B1F6A2439C8D7500}Prefabs/Warfare/SPT_WarfarePoint.et" {
+ {
+  components {
+   SPT_WarfarePointComponent "{B1F6A2439C8D7502}" {
+    m_sPointId "HQ_PLAYER"
+    m_sDisplayName "Base Inicial"
+    m_fRadius 250
+    m_iCaptureOrder 0
+   }
+  }
+  coords 1280.475 37.509 2941.303
+ }
+ {
+  components {
+   SPT_WarfarePointComponent "{B1F6A2439C8D7502}" {
+    m_sPointId "CIDADE_1"
+    m_sDisplayName "Area Militar 1"
+    m_ePointType CITY
+   }
+  }
+  coords 3128.759 11.458 2828.669
+ }
+ {
+  components {
+   SPT_WarfarePointComponent "{B1F6A2439C8D7502}" {
+    m_sPointId "MILITARY_BASE_1"
+    m_sDisplayName "Base Militar Aeroporto"
+    m_ePointType MILITARY_BASE
+    m_fRadius 100
+    m_iCaptureOrder 2
+   }
+  }
+  coords 1387.854 36.219 2365.719
+ }
+}
 $grp GenericEntity : "{CCC00D009D4949B0}Prefabs/Weapons/Explosives/Mine_TM62M/Mine_TM62M_base.et" {
  Mine_TM62M_base_69B91BBBDC3D1630 {
   coords 1372.221 36.517 2381.282

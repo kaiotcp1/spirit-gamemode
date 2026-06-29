@@ -55,14 +55,17 @@ class SPT_WarfarePointData : Managed
 	//! Verdadeiro se este ponto e um HQ inicial.
 	bool m_bIsHQ;
 
+	//! Etapa territorial configurada manualmente (0 = HQ).
+	int m_iCaptureOrder;
+
 	//! Verdadeiro se este ponto conta para a condicao de vitoria.
 	bool m_bCountsForVictory;
 
-	//! Verdadeiro se este ponto foi configurado manualmente (sobrescreve descritor automatico).
-	bool m_bManualOverride;
-
 	//! ID da localizacao de guarnicao associada (do SPT_WorldGarrisonManagerComponent).
 	string m_sGarrisonLocationId;
+
+	//! Usado somente pelo preview do editor para destacar configuracao invalida.
+	bool m_bPreviewInvalid;
 
 	void SPT_WarfarePointData()
 	{

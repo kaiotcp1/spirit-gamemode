@@ -68,6 +68,16 @@ class SPT_GarrisonSpawnRequest : Managed
 	}
 }
 
+//! Candidato bruto coletado de um MapDescriptor antes da deduplicacao.
+class SPT_GarrisonDescriptorCandidate : Managed
+{
+	vector m_vCenter;
+	string m_sName;
+	string m_sLocationId;
+	int m_iDescriptorType;
+	int m_iPriority;
+}
+
 class SPT_GarrisonLocation : Managed
 {
 	//! Identificador estavel e unico derivado do descritor do mapa.
@@ -79,6 +89,8 @@ class SPT_GarrisonLocation : Managed
 	bool m_bActive;
 	bool m_bSpawning;
 	bool m_bUnavailable;
+	//! Localizacao protegida pelo Warfare (HQ); nunca recebe IA hostil.
+	bool m_bSafe;
 	//! Diferencia "nunca sofreu stream-out" de um cache intencionalmente vazio
 	//! apos todos os grupos desta localizacao terem sido eliminados.
 	bool m_bHasCachedSnapshot;
@@ -117,12 +129,12 @@ class SPT_GarrisonLocation : Managed
 		m_iDescriptorType = descriptorType;
 		m_sLocationId = locationId;
 		if (m_sLocationId.IsEmpty())
-			m_sLocationId = GenerateLocationId(name, descriptorType);
+			m_sLocationId = GenerateLocationId(name, descriptorType, center);
 	}
 
 	//! Gera um ID estavel a partir do nome e tipo do descritor.
 	//! Remove caracteres especiais para criar um identificador limpo.
-	static string GenerateLocationId(string name, int descriptorType)
+	static string GenerateLocationId(string name, int descriptorType, vector center = vector.Zero)
 	{
 		string clean = name;
 		clean.Replace("#", "");
@@ -131,7 +143,9 @@ class SPT_GarrisonLocation : Managed
 		clean.Replace(" ", "_");
 		if (clean.IsEmpty())
 			clean = string.Format("LOC_%1", descriptorType);
-		return clean;
+		int quantizedX = Math.Round(center[0]);
+		int quantizedZ = Math.Round(center[2]);
+		return string.Format("%1_%2_%3_%4", clean, descriptorType, quantizedX, quantizedZ);
 	}
 
 	//! Captura o manpower atual como referencia inicial para deteccao de
@@ -453,7 +467,10 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 	protected EMovementType m_ePatrolMovementType;
 
 	protected ref array<ref SPT_GarrisonLocation> m_aLocations = new array<ref SPT_GarrisonLocation>();
+	protected ref array<ref SPT_GarrisonDescriptorCandidate> m_aDescriptorCandidates = new array<ref SPT_GarrisonDescriptorCandidate>();
+	protected ref array<ref SPT_GarrisonLocation> m_aDiscardedDescriptorLocations = new array<ref SPT_GarrisonLocation>();
 	protected int m_iDebugUpdateCounter;
+	protected bool m_bBuildingEditorPreview;
 
 	//! Fila de spawns pendentes processados um por tick.
 	protected ref array<ref SPT_GarrisonSpawnRequest> m_aPendingSpawns = new array<ref SPT_GarrisonSpawnRequest>();
@@ -628,14 +645,29 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 
 		ConfigureAIWorldLimits();
 		DebugLog("Verificando descritores do mapa em busca de assentamentos e locais estrategicos...");
+		m_aLocations.Clear();
+		m_aDescriptorCandidates.Clear();
+		m_aDiscardedDescriptorLocations.Clear();
 
-		world.QueryEntitiesBySphere(
-			vector.Zero,
-			99999999,
-			CollectLocation,
-			FilterLocation,
-			EQueryEntitiesFlags.ALL
-		);
+		SPT_WarfareGameModeComponent warfare = SPT_WarfareGameModeComponent.Cast(
+			GetOwner().FindComponent(SPT_WarfareGameModeComponent));
+		if (!warfare)
+		{
+			world.QueryEntitiesBySphere(
+				vector.Zero,
+				99999999,
+				CollectLocation,
+				FilterLocation,
+				EQueryEntitiesFlags.ALL
+			);
+
+			ResolveDescriptorCandidates();
+			ValidateCanonicalLocations();
+		}
+		else
+		{
+			Print("[SPT_WorldGarrison] Descoberta por descritores desativada; aguardando SPT_WarfarePoint manuais.");
+		}
 
 		foreach (SPT_GarrisonLocation location : m_aLocations)
 			location.InitBudget(m_iLocationBudget);
@@ -646,10 +678,19 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		if (m_aLocations.IsEmpty())
 			Print("[SPT_WorldGarrison] Nenhum local de mapa suportado foi encontrado. Verifique os tipos de descritor e as configuracoes de inclusao.", LogLevel.WARNING);
 
+		// O Warfare inicializa em 2 s e precisa marcar HQs como SAFE antes do
+		// primeiro stream-in. Atrasamos somente o inicio do loop.
+		GetGame().GetCallqueue().CallLater(StartLocationUpdateLoop, 1500, false);
+		DebugLog("Primeiro ciclo de distancia agendado apos a resolucao SAFE do Warfare.");
+	}
+
+	protected void StartLocationUpdateLoop()
+	{
 		UpdateLocations();
 		int updateIntervalMs = Math.Round(m_fUpdateInterval * 1000);
 		GetGame().GetCallqueue().CallLater(UpdateLocations, updateIntervalMs, true);
-		DebugLog(string.Format("Loop de atualizacao de distancia iniciado com intervalo de %1 ms.", updateIntervalMs));
+		DebugLog(string.Format("Loop de atualizacao de distancia iniciado com intervalo de %1 ms.",
+			updateIntervalMs));
 	}
 
 	protected bool FilterLocation(IEntity entity)
@@ -671,29 +712,195 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			return true;
 
 		vector center = entity.GetOrigin();
-		if (IsNearRegisteredLocation(center))
-			return true;
 
 		string name = "Map location";
-		string locationId = "";
 		MapItem item = descriptor.Item();
 		if (item)
 		{
 			string displayName = item.GetDisplayName();
 			if (!displayName.IsEmpty())
-			{
 				name = displayName;
-				locationId = SPT_GarrisonLocation.GenerateLocationId(displayName, descriptor.GetBaseType());
-			}
 		}
 
-		if (locationId.IsEmpty())
-			locationId = string.Format("LOC_%1_%2", descriptor.GetBaseType(), center.ToString());
-
-		m_aLocations.Insert(new SPT_GarrisonLocation(center, name, descriptor.GetBaseType(), locationId));
-		DebugLog(string.Format("Local registrado | id=%1 | nome=%2 | tipo=%3 | posicao=%4",
-			locationId, name, descriptor.GetBaseType(), center));
+		SPT_GarrisonDescriptorCandidate candidate = new SPT_GarrisonDescriptorCandidate();
+		candidate.m_vCenter = center;
+		candidate.m_sName = name;
+		candidate.m_iDescriptorType = descriptor.GetBaseType();
+		candidate.m_sLocationId = SPT_GarrisonLocation.GenerateLocationId(
+			name,
+			candidate.m_iDescriptorType,
+			center);
+		candidate.m_iPriority = GetDescriptorPriority(candidate.m_iDescriptorType);
+		m_aDescriptorCandidates.Insert(candidate);
 		return true;
+	}
+
+	protected void ResolveDescriptorCandidates()
+	{
+		ref array<ref SPT_GarrisonDescriptorCandidate> pending = new array<ref SPT_GarrisonDescriptorCandidate>();
+		foreach (SPT_GarrisonDescriptorCandidate candidate : m_aDescriptorCandidates)
+			pending.Insert(candidate);
+
+		float mergeDistanceSq = m_fMinimumLocationSpacing * m_fMinimumLocationSpacing;
+		while (!pending.IsEmpty())
+		{
+			int bestIndex;
+			for (int i = 1; i < pending.Count(); i++)
+			{
+				if (IsDescriptorCandidateBetter(pending[i], pending[bestIndex]))
+					bestIndex = i;
+			}
+
+			SPT_GarrisonDescriptorCandidate winner = pending[bestIndex];
+			pending.Remove(bestIndex);
+
+			SPT_GarrisonLocation duplicateOf;
+			float duplicateDistanceSq;
+			foreach (SPT_GarrisonLocation accepted : m_aLocations)
+			{
+				float distanceSq = HorizontalDistanceSq(winner.m_vCenter, accepted.m_vCenter);
+				if (distanceSq <= mergeDistanceSq)
+				{
+					duplicateOf = accepted;
+					duplicateDistanceSq = distanceSq;
+					break;
+				}
+			}
+
+			if (duplicateOf)
+			{
+				m_aDiscardedDescriptorLocations.Insert(new SPT_GarrisonLocation(
+					winner.m_vCenter,
+					winner.m_sName,
+					winner.m_iDescriptorType,
+					winner.m_sLocationId));
+				if (!m_bBuildingEditorPreview)
+				{
+					Print(string.Format("[SPT_WorldGarrison] Descritor duplicado descartado | descartado=%1 (%2) | vencedor=%3 (%4) | distancia=%5m",
+						winner.m_sName,
+						winner.m_iDescriptorType,
+						duplicateOf.m_sName,
+						duplicateOf.m_iDescriptorType,
+						Math.Sqrt(duplicateDistanceSq)), LogLevel.WARNING);
+				}
+				continue;
+			}
+
+			m_aLocations.Insert(new SPT_GarrisonLocation(
+				winner.m_vCenter,
+				winner.m_sName,
+				winner.m_iDescriptorType,
+				winner.m_sLocationId));
+			DebugLog(string.Format("Descritor canonico | id=%1 | nome=%2 | tipo=%3 | prioridade=%4 | posicao=%5",
+				winner.m_sLocationId,
+				winner.m_sName,
+				winner.m_iDescriptorType,
+				winner.m_iPriority,
+				winner.m_vCenter));
+		}
+	}
+
+	protected bool IsDescriptorCandidateBetter(
+		notnull SPT_GarrisonDescriptorCandidate candidate,
+		notnull SPT_GarrisonDescriptorCandidate current)
+	{
+		if (candidate.m_iPriority != current.m_iPriority)
+			return candidate.m_iPriority > current.m_iPriority;
+
+		bool candidateNamed = candidate.m_sName != "Map location";
+		bool currentNamed = current.m_sName != "Map location";
+		if (candidateNamed != currentNamed)
+			return candidateNamed;
+
+		int idCompare = candidate.m_sLocationId.Compare(current.m_sLocationId);
+		if (idCompare != 0)
+			return idCompare < 0;
+
+		if (candidate.m_vCenter[0] != current.m_vCenter[0])
+			return candidate.m_vCenter[0] < current.m_vCenter[0];
+		return candidate.m_vCenter[2] < current.m_vCenter[2];
+	}
+
+	protected void ValidateCanonicalLocations()
+	{
+		float minimumDistanceSq = m_fMinimumLocationSpacing * m_fMinimumLocationSpacing;
+		for (int i = 0; i < m_aLocations.Count(); i++)
+		{
+			for (int j = i + 1; j < m_aLocations.Count(); j++)
+			{
+				SPT_GarrisonLocation locationA = m_aLocations[i];
+				SPT_GarrisonLocation locationB = m_aLocations[j];
+				if (locationA.m_sLocationId == locationB.m_sLocationId)
+				{
+					Print(string.Format("[SPT_WorldGarrison] ERRO: ID canonico duplicado: %1",
+						locationA.m_sLocationId), LogLevel.ERROR);
+				}
+
+				float distanceSq = HorizontalDistanceSq(locationA.m_vCenter, locationB.m_vCenter);
+				if (distanceSq <= minimumDistanceSq)
+				{
+					Print(string.Format("[SPT_WorldGarrison] ERRO: Areas canonicas sobrepostas apos deduplicacao | %1 | %2 | distancia=%3m",
+						locationA.m_sLocationId,
+						locationB.m_sLocationId,
+						Math.Sqrt(distanceSq)), LogLevel.ERROR);
+				}
+			}
+		}
+	}
+
+	protected int GetDescriptorPriority(int descriptorType)
+	{
+		if (descriptorType == EMapDescriptorType.MDT_AIRPORT) return 100;
+		if (descriptorType == EMapDescriptorType.MDT_BASE) return 95;
+		if (descriptorType == EMapDescriptorType.MDT_PORT) return 90;
+		if (descriptorType == EMapDescriptorType.MDT_RADIO) return 85;
+		if (descriptorType == EMapDescriptorType.MDT_POLICE) return 80;
+		if (descriptorType == EMapDescriptorType.MDT_FIREDEP) return 75;
+		if (descriptorType == EMapDescriptorType.MDT_CONSTRUCTION_SITE) return 70;
+		if (descriptorType == EMapDescriptorType.MDT_LANDMARK) return 65;
+		if (descriptorType == EMapDescriptorType.MDT_NAME_CITY) return 50;
+		if (descriptorType == EMapDescriptorType.MDT_NAME_TOWN) return 40;
+		if (descriptorType == EMapDescriptorType.MDT_NAME_VILLAGE) return 30;
+		if (descriptorType == EMapDescriptorType.MDT_NAME_SETTLEMENT) return 20;
+		return 0;
+	}
+
+	//! Resolve descritores no World Editor usando exatamente a mesma regra do runtime.
+	void BuildEditorPreviewLocations(notnull array<ref SPT_GarrisonLocation> outLocations)
+	{
+		outLocations.Clear();
+		if (!SCR_Global.IsEditMode())
+			return;
+
+		BaseWorld world = GetGame().GetWorld();
+		if (!world)
+			return;
+
+		m_bBuildingEditorPreview = true;
+		m_aLocations.Clear();
+		m_aDescriptorCandidates.Clear();
+		m_aDiscardedDescriptorLocations.Clear();
+		world.QueryEntitiesBySphere(
+			vector.Zero,
+			99999999,
+			CollectLocation,
+			FilterLocation,
+			EQueryEntitiesFlags.ALL);
+		ResolveDescriptorCandidates();
+		foreach (SPT_GarrisonLocation location : m_aLocations)
+			outLocations.Insert(location);
+		m_bBuildingEditorPreview = false;
+	}
+
+	//! Retorna os descritores descartados pela deduplicacao para destaque
+	//! magenta no preview. Eles nunca entram nas localizacoes do runtime.
+	void GetEditorPreviewDuplicateLocations(notnull array<ref SPT_GarrisonLocation> outLocations)
+	{
+		outLocations.Clear();
+		if (!SCR_Global.IsEditMode())
+			return;
+		foreach (SPT_GarrisonLocation location : m_aDiscardedDescriptorLocations)
+			outLocations.Insert(location);
 	}
 
 	protected bool IsSupportedDescriptor(int descriptorType)
@@ -775,6 +982,8 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 
 		foreach (SPT_GarrisonLocation location : m_aLocations)
 		{
+			if (location.m_bSafe)
+				continue;
 			if (location.m_bUnavailable)
 				continue;
 			if (location.m_bCleared && !location.m_Battle.m_bActive)
@@ -881,7 +1090,7 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			return false;
 
 		SPT_GarrisonLocation location = FindNearestLocation(position);
-		if (!location || location.m_Battle.m_bActive || !location.CanDeployUnits())
+		if (!location || location.m_bSafe || location.m_Battle.m_bActive || !location.CanDeployUnits())
 			return false;
 
 		location.m_Battle.Reset();
@@ -955,7 +1164,7 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 	bool IsLocationBattleActive(vector position)
 	{
 		SPT_GarrisonLocation location = FindNearestLocation(position);
-		return location && location.m_Battle.m_bActive;
+		return location && !location.m_bSafe && location.m_Battle.m_bActive;
 	}
 
 	//-----------------------------------------------------------------------
@@ -993,6 +1202,105 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 	int GetLocationCount()
 	{
 		return m_aLocations.Count();
+	}
+
+	//! Substitui descritores automaticos por localizacoes definidas pelos
+	//! SPT_WarfarePoint. Deve ser chamado antes do primeiro ciclo de streaming.
+	void ResetLocationsForManualWarfare()
+	{
+		if (!Replication.IsServer())
+			return;
+
+		foreach (SPT_GarrisonLocation location : m_aLocations)
+		{
+			location.m_bSafe = true;
+			ClearLocationForSafe(location);
+		}
+		m_aLocations.Clear();
+		m_aDescriptorCandidates.Clear();
+		m_aDiscardedDescriptorLocations.Clear();
+	}
+
+	bool RegisterManualWarfareLocation(string locationId, string displayName, vector center)
+	{
+		if (!Replication.IsServer() || locationId.IsEmpty() || FindLocationById(locationId))
+			return false;
+
+		SPT_GarrisonLocation location = new SPT_GarrisonLocation(
+			center,
+			displayName,
+			EMapDescriptorType.MDT_BASE,
+			locationId);
+		location.InitBudget(m_iLocationBudget);
+		m_aLocations.Insert(location);
+		Print(string.Format("[SPT_WorldGarrison] Localizacao Warfare manual registrada | id=%1 | nome=%2 | posicao=%3",
+			locationId, displayName, center));
+		return true;
+	}
+
+	//! Ativa/desativa a protecao de uma localizacao. Ao ativar, remove toda
+	//! presenca hostil e invalida callbacks de spawn pendentes.
+	bool SetLocationSafe(string locationId, bool safe)
+	{
+		if (!Replication.IsServer())
+			return false;
+
+		SPT_GarrisonLocation location = FindLocationById(locationId);
+		if (!location)
+			return false;
+
+		if (location.m_bSafe == safe)
+			return true;
+
+		location.m_bSafe = safe;
+		if (!safe)
+		{
+			location.m_bCleared = false;
+			Print(string.Format("[SPT_WorldGarrison] Localizacao deixou de ser SAFE | id=%1", locationId));
+			return true;
+		}
+
+		ClearLocationForSafe(location);
+		Print(string.Format("[SPT_WorldGarrison] Localizacao marcada como SAFE | id=%1 | nome=%2",
+			locationId, location.m_sName));
+		return true;
+	}
+
+	bool IsLocationSafe(string locationId)
+	{
+		SPT_GarrisonLocation location = FindLocationById(locationId);
+		return location && location.m_bSafe;
+	}
+
+	protected void ClearLocationForSafe(notnull SPT_GarrisonLocation location)
+	{
+		CancelPendingSpawns(location);
+		CancelPendingBattleSpawns(location);
+		location.m_Battle.m_bCancelled = true;
+		location.m_Battle.m_bActive = false;
+		RemoveBattleForces(location);
+
+		BaseWorld world = GetGame().GetWorld();
+		for (int i = location.m_aGroupIds.Count() - 1; i >= 0; i--)
+		{
+			SCR_AIGroup group = SCR_AIGroup.Cast(world.FindEntityByID(location.m_aGroupIds[i]));
+			if (group)
+				DeleteGroup(group);
+		}
+
+		location.m_aGroupIds.Clear();
+		location.m_aGroupRecords.Clear();
+		location.m_aCachedGroups.Clear();
+		location.m_bHasCachedSnapshot = true;
+		location.m_bActive = false;
+		location.m_bSpawning = false;
+		location.m_bUnavailable = false;
+		location.m_bCleared = true;
+		location.m_bFirstCasualtyTriggered = true;
+		location.m_iInitialGarrisonManpower = 0;
+		location.m_iPendingGroups = 0;
+		location.m_iQueuedSpawnUnits = 0;
+		location.m_iQueuedGarrisonUnits = 0;
 	}
 
 	//! Preenche um array com todos os IDs de localizacao registrados.
@@ -1047,7 +1355,7 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 	bool StartMonitoringLocation(string locationId)
 	{
 		SPT_GarrisonLocation location = FindLocationById(locationId);
-		if (!location)
+		if (!location || location.m_bSafe)
 			return false;
 
 		location.SnapInitialManpower();
@@ -1062,6 +1370,8 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 	{
 		foreach (SPT_GarrisonLocation location : m_aLocations)
 		{
+			if (location.m_bSafe)
+				continue;
 			if (!location.m_bActive)
 				continue;
 
@@ -1200,6 +1510,8 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 
 		foreach (SPT_GarrisonLocation location : m_aLocations)
 		{
+			if (location.m_bSafe)
+				continue;
 			SPT_LocationBattleState battle = location.m_Battle;
 			if (!battle.m_bActive)
 				continue;
@@ -1641,6 +1953,9 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 
 	protected void SpawnLocation(notnull SPT_GarrisonLocation location)
 	{
+		if (location.m_bSafe)
+			return;
+
 		PruneMissingGroupIds(location);
 
 		// -----------------------------------------------------------------
@@ -2080,6 +2395,12 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			location.m_iQueuedGarrisonUnits = Math.Max(
 				0,
 				location.m_iQueuedGarrisonUnits - req.m_iExpectedUnits);
+		}
+
+		if (location.m_bSafe)
+		{
+			location.RefreshClearedState();
+			return;
 		}
 
 		if (req.m_iGeneration != location.m_iSpawnGeneration)

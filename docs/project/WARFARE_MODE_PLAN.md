@@ -1,415 +1,279 @@
-# Plano de Implementação — Modo SPT Warfare
+# SPT Warfare — arquitetura atual
 
-## Resumo
+Data de referencia: 2026-06-29.
 
-Criar `SPT_WarfareGameModeComponent` como coordenador autoritativo no servidor
-para uma campanha de conquista territorial.
+Este documento descreve o estado atual do sistema Warfare depois da mudanca para configuracao 100% manual por `SPT_WarfarePoint`.
 
-Cada área estratégica começa sob controle inimigo, aparece no mapa e participa
-de um grafo territorial. A primeira baixa da guarnição inicia os reforços da
-área. Eliminar somente os grupos locais CQB e de patrulha permite a captura;
-ondas de reforço nunca bloqueiam nem revertem a propriedade do território.
+## Decisao atual
 
-O objetivo da primeira versão é oferecer uma campanha simples de entender,
-desafiadora e compatível com os sistemas atuais de caching, budget e batalhas.
+O Warfare nao cria mais pontos automaticamente a partir de descritores do mapa.
 
----
+Todo objetivo precisa ser colocado no World Editor usando:
 
-## 1. Arquitetura
+```text
+Prefabs/Warfare/SPT_WarfarePoint.et
+```
 
-### `SPT_WarfareGameModeComponent`
+Nao existem mais:
 
-Componente central anexado ao GameMode, responsável por:
+- modo `AUTOMATIC`;
+- modo `HYBRID`;
+- descoberta de objetivos Warfare por `MapDescriptorComponent`;
+- vinculo automatico de ponto Warfare com descritor por distancia;
+- lista manual de vizinhos por string;
+- IDs instaveis do tipo `MANUAL_n`.
 
-- registrar e validar todos os pontos Warfare;
-- manter ownership e estado de cada área;
-- calcular a frente territorial;
-- observar baixas e limpeza das guarnições;
-- iniciar batalhas pela API pública de reforços;
-- confirmar capturas;
-- replicar estado para clientes e jogadores que entrarem depois;
-- controlar marcadores, notificações e condição de vitória.
+O World Garrison ainda mantem suporte interno a descritores para uso isolado, mas quando o `SPT_WarfareGameModeComponent` existe no GameMode, a descoberta por descritores fica desativada para o fluxo Warfare.
 
-O servidor será a única autoridade para captura, ownership, progressão e início
-de reforços.
+Log esperado:
 
-### `SPT_WarfarePointComponent`
+```text
+[SPT_WorldGarrison] Descoberta por descritores desativada; aguardando SPT_WarfarePoint manuais.
+```
 
-Componente colocado no World Editor em cada área participante. Deve expor:
+## Componentes principais
 
-- ID estável e único;
-- nome opcional;
-- tipo da área;
-- raio de ataque/captura;
-- IDs dos pontos vizinhos;
-- opção de marcar o ponto como HQ inicial;
-- opção de herdar nome, tipo e posição do `MapDescriptorComponent` mais próximo;
-- opção de habilitar ou excluir o ponto da condição global de vitória.
+| Arquivo | Responsabilidade |
+|---|---|
+| `Prefabs/Warfare/SPT_WarfarePoint.et` | Prefab colocavel no World Editor para cada objetivo Warfare |
+| `Scripts/Game/Components/SPT_WarfarePointComponent.c` | Atributos do ponto: ID, nome, tipo, raio, ordem de captura e vitoria |
+| `Scripts/Game/GameMode/SPT_WarfareGameModeComponent.c` | Autoridade do Warfare, validacao, estados, captura, preview, RPC e JIP |
+| `Scripts/Game/GameMode/SPT_WarfareTypes.c` | Enums, dados e snapshots Warfare |
+| `Scripts/Game/GameMode/SPT_WorldGarrisonManagerComponent.c` | Streaming, guarnicoes, batalhas, SAFE e localizacoes manuais do Warfare |
+| `Scripts/Game/UI/SPT_WarfareMapRenderer.c` | Icones no mapa tatico nativo |
 
-Tipos iniciais:
+## Configuracao de pontos
 
-- cidade;
-- vila;
-- base ou área militar;
-- aeroporto;
-- ruína;
-- porto;
-- floresta;
-- montanha;
-- campo;
-- personalizado.
+Cada `SPT_WarfarePoint` deve ter:
 
-### Descoberta híbrida
+- `Point ID`: obrigatorio, estavel e unico;
+- `Display Name`: opcional; se vazio, o ID e usado;
+- `Point Type`: tipo visual/logico do objetivo;
+- `Radius`: raio de ataque/captura;
+- `Capture Order`: ordem numerica da progressao;
+- `Counts For Victory`: se entra na condicao de vitoria.
 
-- Cidades, vilas, portos, aeroportos e outros descritores suportados podem ser
-  detectados automaticamente.
-- Componentes manuais adicionam florestas, montanhas, campos e áreas sem
-  descritor.
-- Um componente manual próximo a um descritor automático sobrescreve seus
-  metadados e fornece ID, links e raio.
-- Pontos automáticos sem links permanecem visíveis, mas bloqueados. A validação
-  deve informar claramente quais configurações estão ausentes.
+### Ordem de captura
 
----
+A progressao territorial e derivada somente do atributo `Capture Order`.
 
-## 2. Grafo territorial e progressão
+| Ordem | Significado |
+|---|---|
+| `0` | HQ inicial do jogador; sempre SAFE e ja capturada |
+| `1` | Primeira etapa inimiga atacavel |
+| `2` | Segunda etapa; libera quando todos os pontos de ordem `1` forem capturados |
+| `3+` | Etapas seguintes, seguindo a mesma regra |
 
-O avanço usa uma frente conectada.
+Regras:
 
-- Um ou mais pontos começam como HQ azul.
-- Um ponto inimigo é atacável quando é vizinho de um ponto capturado.
-- A frente é recalculada por busca em largura (BFS) após cada captura.
-- Pontos desconectados permanecem bloqueados.
-- Todos os links são configurados explicitamente por IDs nos componentes.
+- precisa existir pelo menos um ponto de ordem `0`;
+- ordens negativas sao invalidas;
+- a sequencia precisa comecar em `0`;
+- nao pode haver lacunas entre ordens;
+- pontos com a mesma ordem sao objetivos paralelos;
+- todos os pontos da ordem anterior precisam ser capturados para liberar a proxima ordem.
 
-Validações obrigatórias ao iniciar:
+Exemplo:
 
-- IDs duplicados;
-- IDs vazios;
-- vizinhos inexistentes;
-- links para o próprio ponto;
-- ausência de HQ;
-- pontos inalcançáveis a partir de qualquer HQ;
-- descritores duplicados representando a mesma área.
+```text
+SPT_WarfarePoint_HQ       Capture Order = 0
+SPT_WarfarePoint_Vila_A   Capture Order = 1
+SPT_WarfarePoint_Vila_B   Capture Order = 1
+SPT_WarfarePoint_Base_C   Capture Order = 2
+```
 
-### Ataques profundos
+Nesse exemplo, a base de ordem `2` so vira frente de batalha quando `Vila_A` e `Vila_B` estiverem capturadas.
 
-Jogadores ainda podem entrar fisicamente em uma área bloqueada.
+## Grafo territorial
 
-Se eliminarem a guarnição:
+O grafo e construido automaticamente pelo GameMode:
 
-- os defensores não respawnam;
-- a limpeza fica registrada;
-- o ponto continua vermelho e isolado;
-- a captura fica pendente;
-- quando a conexão territorial chegar, a captura é concluída se a presença já
-  tiver sido confirmada durante a limpeza;
-- caso contrário, um jogador precisa retornar ao raio para confirmar.
+- todo ponto de ordem `N` se conecta aos pontos de ordem `N - 1`;
+- os links sao bidirecionais para preview e alcance;
+- nao ha mais configuracao manual de vizinhos.
 
-Isso preserva o caching finito e evita recriar inimigos artificialmente.
+Isso simplifica a configuracao no editor e reduz erro humano. A ordem numerica passa a ser a fonte unica da progressao.
 
----
+## HQ SAFE
 
-## 3. Estados das áreas
+Todo ponto com `Capture Order = 0` e tratado como HQ.
 
-Criar enum de estado Warfare:
+Durante a inicializacao, o Warfare registra uma localizacao de guarnicao manual para cada ponto e marca as localizacoes de HQ como SAFE antes do primeiro ciclo de streaming.
 
-| Estado | Mapa | Significado |
+Uma localizacao SAFE:
+
+- nao spawna CQB;
+- nao spawna patrulha;
+- nao entra em monitoramento de baixa;
+- nao inicia batalha;
+- cancela filas e batalhas pendentes;
+- remove grupos ativos e cacheados;
+- nao emite eventos de captura.
+
+Isso evita o problema anterior em que a area inicial do jogador acionava CQB, patrulha ou reforcos inimigos.
+
+## Guarnicoes manuais
+
+Cada ponto Warfare cria sua propria localizacao de guarnicao no centro do ponto.
+
+O ID da localizacao de guarnicao e o mesmo `Point ID` do Warfare. Por isso, o ponto nao depende mais de:
+
+- descritor do mapa;
+- distancia ate cidade/vila/base;
+- nome de localidade do mapa;
+- componente visual de mapa externo.
+
+Fluxo de inicializacao no servidor:
+
+1. coletar todos os `SPT_WarfarePointComponent`;
+2. validar IDs e ordens;
+3. construir grafo por ordem de captura;
+4. registrar localizacoes manuais no `SPT_WorldGarrisonManagerComponent`;
+5. marcar HQs como SAFE;
+6. calcular frente inicial;
+7. replicar snapshot para clientes.
+
+Logs esperados para pontos validos:
+
+```text
+[SPT_WorldGarrison] Localizacao Warfare manual registrada | id=...
+[SPT_Warfare] Inicializacao concluida
+```
+
+## Estados dos pontos
+
+| Estado | Cor no mapa | Significado |
 |---|---|---|
-| `LOCKED` | Vermelho escuro | Área inimiga desconectada da frente |
-| `FRONTLINE` | Vermelho | Área inimiga disponível para ataque |
-| `UNDER_ATTACK` | Laranja | Primeira baixa registrada e reforços autorizados |
-| `CLEARED_WAITING` | Amarelo | Guarnição eliminada, aguardando presença ou conexão |
-| `CAPTURED_DEFENDING` | Azul pulsante | Capturada, mas reforços inimigos ainda estão chegando |
-| `CAPTURED` | Azul | Área conquistada e batalha encerrada |
+| `LOCKED` | Vermelho escuro | Inimigo, mas ainda bloqueado pela ordem de captura |
+| `FRONTLINE` | Vermelho | Atacavel agora |
+| `UNDER_ATTACK` | Laranja | Primeira baixa registrada; reforcos autorizados |
+| `CLEARED_WAITING` | Amarelo | Guarnicao local eliminada, aguardando presenca/captura |
+| `CAPTURED_DEFENDING` | Azul claro pulsante | Capturado, mas batalha/reforcos ainda ativos |
+| `CAPTURED` | Azul | Capturado e seguro |
 
-Ownership e batalha são estados independentes:
+Captura e reforcos sao independentes:
 
-- um ponto pode ser azul enquanto ainda há reforços inimigos;
-- reforços não capturam nem recapturam;
-- eliminar reforços não é requisito para mudar o ownership;
-- recaptura inimiga fica fora da primeira versão.
+- reforcos inimigos nao bloqueiam a mudanca de ownership;
+- o ponto pode ficar azul enquanto a batalha continua;
+- ao terminar a batalha, `CAPTURED_DEFENDING` muda para `CAPTURED`;
+- recaptura inimiga esta fora do escopo atual.
 
----
+## Regra de ataque e captura
 
-## 4. Integração com guarnições
+Um ponto inimigo fica atacavel quando:
 
-Expandir `SPT_WorldGarrisonManagerComponent` com uma interface pública estável
-para o Warfare.
+- esta em `FRONTLINE`;
+- todos os pontos da ordem anterior foram capturados.
 
-### Estado público por localização
+A primeira baixa da guarnicao:
 
-Expor:
+1. muda `FRONTLINE` para `UNDER_ATTACK`;
+2. dispara `StartLocationBattle(position)` uma unica vez;
+3. agenda reforcos usando o sistema de batalha do `SPT_WorldGarrisonManagerComponent`.
 
-- ID estável;
-- centro e nome;
-- manpower atual da guarnição;
-- manpower-alvo/inicial;
-- quantidade de spawns locais pendentes;
-- estado `cleared`;
-- budget restante;
-- batalha ativa;
-- tempo estimado para a próxima onda.
+Um ponto captura quando:
 
-### Eventos
+1. a guarnicao local CQB/patrulha esta zerada;
+2. nao ha spawn local pendente;
+3. existe jogador vivo da faccao configurada dentro do raio, se `Require Player Presence` estiver ativo;
+4. a ordem anterior ja esta completamente capturada.
 
-Adicionar invokers para:
+Se a guarnicao zerar sem presenca, o ponto fica em `CLEARED_WAITING`.
 
-- primeira baixa da guarnição;
-- guarnição local eliminada;
-- batalha iniciada;
-- onda agendada;
-- onda materializada;
-- batalha encerrada.
+## Preview no World Editor
 
-As contagens precisam continuar separadas:
+Ao selecionar o GameMode no World Editor, o componente desenha um preview com `Shape` e callbacks `_WB_*`.
 
-- grupos CQB e patrulha contam para captura;
-- battle groups, comboios, tripulações e sobreviventes de ondas não contam.
+O preview usa a mesma resolucao do runtime:
 
-### Primeira baixa
+- HQ em azul;
+- frente inicial em laranja;
+- pontos alcancaveis por BFS em verde;
+- pontos bloqueados/desconectados em vermelho;
+- pontos invalidos em magenta;
+- linhas entre ordens consecutivas.
 
-O primeiro momento em que o manpower local fica abaixo do manpower inicial:
+O preview tambem mostra raio, ID e nome dos pontos. Ao mover entidades ou alterar atributos, ele recalcula o grafo na atualizacao do editor.
 
-1. marca a área como `UNDER_ATTACK`;
-2. registra que o gatilho já foi usado;
-3. chama `StartLocationBattle(position)` exatamente uma vez;
-4. informa aos jogadores a faixa de chegada da primeira onda.
+## Mapa tatico nativo
 
-Entrar ou atravessar a área sem causar baixas não inicia reforços.
+Os icones aparecem no mapa padrao do jogador, nao em um Canvas separado.
 
----
+O renderer cliente usa:
 
-## 5. Regra de captura
+- `SCR_MapEntity.GetOnMapOpen()`;
+- `SCR_MapEntity.GetOnMapClose()`;
+- `SCR_MapEntity.WorldToScreen()`;
+- overlay transparente `UI/Layouts/WarfareMap.layout`.
 
-Uma área pode ser capturada quando:
+O cliente recebe dados por RPC confiavel e por snapshot `RplSave`/`RplLoad` para JIP.
 
-1. o manpower da guarnição CQB/patrulha é zero;
-2. não existe spawn de guarnição pendente;
-3. existe ao menos um jogador vivo da facção configurada dentro do raio;
-4. a área está conectada à frente azul.
+## Validacoes
 
-Se a guarnição zerar sem jogador presente, usar `CLEARED_WAITING`.
+Erros que bloqueiam a inicializacao Warfare:
 
-Se a área estiver desconectada, guardar:
+- nenhum ponto manual encontrado;
+- ID vazio;
+- ID duplicado;
+- ordem negativa;
+- ausencia de HQ (`Capture Order = 0`);
+- lacuna na sequencia de ordens;
+- falha ao registrar localizacao manual de guarnicao.
 
-- limpeza confirmada;
-- presença confirmada durante a limpeza;
-- captura pendente por conexão.
+Avisos esperados:
 
-Quando todos os requisitos forem satisfeitos:
+- pontos inalcançaveis/desconectados no preview;
+- mapa aberto antes do snapshot do cliente, mostrando temporariamente zero pontos.
 
-- ownership muda para jogador;
-- marcador fica azul;
-- novos vizinhos são desbloqueados;
-- se houver batalha ativa, usar `CAPTURED_DEFENDING`;
-- caso contrário, usar `CAPTURED`.
+## Como configurar no editor
 
----
+1. Coloque um `SPT_WarfarePoint.et` para o HQ do jogador.
+2. Configure ID unico e `Capture Order = 0`.
+3. Coloque os pontos inimigos.
+4. Configure IDs unicos e ordens `1`, `2`, `3` etc.
+5. Selecione o GameMode para visualizar o grafo.
+6. Corrija pontos magenta ou lacunas de ordem.
+7. Salve a layer.
+8. Compile scripts.
+9. Rode Play Mode.
+10. Abra o mapa tatico nativo e valide os icones.
 
-## 6. Reforços e defesa após captura
+## Checklist de teste
 
-As ondas usam exclusivamente a API pública já implementada:
+### Editor
 
-```c
-SPT_WorldGarrisonManagerComponent.GetInstance().StartLocationBattle(position);
-```
-
-Comportamento:
-
-- primeira baixa autoriza as ondas;
-- a primeira onda respeita o atraso configurado;
-- ondas seguintes respeitam tempo ou limite de sobreviventes;
-- captura não cancela ondas já planejadas;
-- jogadores recebem aviso para preparar a defesa;
-- o ponto continua azul durante a contraofensiva;
-- ao terminar a batalha, muda de `CAPTURED_DEFENDING` para `CAPTURED`.
-
-Se o dataset viário estiver ausente ou inválido:
-
-- o Warfare continua funcionando;
-- `CONVOY` usa fallback `SPREADED`;
-- nenhuma captura ou progressão é bloqueada.
-
----
-
-## 7. Marcadores de mapa
-
-Cada ponto deve possuir marcador próprio, independente do descritor visual
-original.
-
-### Apresentação
-
-- ícone específico por tipo;
-- cor correspondente ao estado;
-- atualização imediata ao atacar, limpar, capturar ou encerrar a defesa;
-- tooltip com nome, categoria, estado territorial e situação dos reforços.
-
-### Replicação
-
-- servidor mantém o estado canônico;
-- mudanças são enviadas por RPC confiável;
-- `RplSave`/`RplLoad` fornece snapshot completo para JIP;
-- clientes criam e atualizam seus marcadores localmente;
-- não replicar `IEntity` nem `EntityID` como estado persistente.
-
----
-
-## 8. HUD e notificações
-
-Notificar somente transições importantes:
-
-- “Área sob ataque” após a primeira baixa;
-- “Reforços inimigos chegando em 30–90 segundos”;
-- aviso de nova onda;
-- “Área limpa — permaneça no local para confirmar”;
-- “Área capturada — prepare a defesa”;
-- “Área segura” quando a batalha terminar;
-- mensagem de vitória global.
-
-Cada transição ou onda gera no máximo uma notificação, evitando spam periódico.
-
----
-
-## 9. Facções e configuração
-
-Adicionar atributos ao componente Warfare:
-
-- chave da facção dos jogadores;
-- chave da facção inimiga;
-- intervalo de atualização;
-- prefab/configuração dos ícones por tipo;
-- cores dos estados;
-- habilitar notificações HUD;
-- habilitar descoberta automática;
-- distância máxima para vincular componente a descritor;
-- exigir presença para captura;
-- habilitar condição global de vitória.
-
-Defaults devem ser compatíveis com o `FactionManager_USxUSSR` atual, mas todas
-as chaves precisam ser configuráveis para compatibilidade com mods.
-
----
-
-## 10. APIs Warfare
-
-Expor métodos públicos:
-
-```c
-SPT_WarfarePointState GetPointState(string pointId);
-bool IsPointCaptured(string pointId);
-bool IsPointAttackable(string pointId);
-bool ForceStartAttack(string pointId);
-float GetCampaignProgress();
-int GetCapturedPointCount();
-int GetTotalPointCount();
-```
-
-Também disponibilizar invokers para captura, desbloqueio, mudança de estado e
-vitória, permitindo integração futura com missões, economia e UI.
-
----
-
-## 11. Condição de vitória
-
-O servidor verifica vitória após cada captura.
-
-Critério:
-
-- todos os pontos habilitados para vitória estão capturados.
-
-Resultado inicial:
-
-- mensagem global;
-- bloqueio de novos ataques;
-- cancelamento de timers de Warfare;
-- evento público `OnWarfareVictory`;
-- encerramento automático da sessão fica configurável e desativado por padrão.
-
----
-
-## 12. Testes manuais
-
-1. Todos os pontos configurados aparecem vermelhos; HQ inicial aparece azul.
-2. Somente vizinhos de território azul ficam `FRONTLINE`.
-3. Entrar sem causar baixa não inicia reforços.
-4. Primeira baixa inicia exatamente uma batalha e um aviso.
-5. Baixas posteriores não reiniciam nem duplicam ondas.
-6. Eliminar CQB/patrulha com jogador presente captura o ponto.
-7. Battle groups e veículos não bloqueiam a captura.
-8. Limpar sem presença mantém `CLEARED_WAITING`.
-9. Limpar ponto desconectado não respawna defensores.
-10. Ponto desconectado captura quando conexão e presença forem satisfeitas.
-11. Captura desbloqueia os vizinhos corretos.
-12. Marcadores atualizam para todos os clientes.
-13. Jogador JIP recebe ownership e marcadores atuais.
-14. Ondas continuam após captura e o ponto fica `CAPTURED_DEFENDING`.
-15. Fim da batalha muda o ponto para `CAPTURED`.
-16. Dataset viário ausente usa fallback sem quebrar a campanha.
-17. Capturar todos os pontos dispara vitória uma única vez.
-18. Logs confirmam transições, manpower, gatilho, ondas, BFS e ownership.
-
----
-
-## 13. Entrega em fases
-
-### Fase A — Contrato da guarnição
-
-- IDs estáveis;
-- consultas públicas;
-- distinção formal entre guarnição e battle groups;
-- eventos de primeira baixa, limpeza e ondas.
-
-### Fase B — Núcleo Warfare
-
-- componentes;
-- registro e validação;
-- estados;
-- BFS;
-- captura;
-- integração com reforços;
-- vitória.
-
-### Fase C — Mapa e rede
-
-- marcadores;
-- replicação;
-- JIP;
-- HUD e notificações.
-
-### Fase D — Configuração do mundo
-
-- colocar/configurar pontos;
-- definir HQ;
-- montar links;
-- validar todos os pontos e categorias.
-
-### Fase E — Validação
-
-- testes incrementais no Workbench;
-- análise de logs;
-- correções;
-- documentação do procedimento final.
-
-Commits semânticos separados:
-
-- `feat(guarnicao): adiciona eventos e estado público para warfare`
-- `feat(warfare): implementa conquista territorial conectada`
-- `feat(warfare): adiciona marcadores e notificações`
-- `chore(mapa): configura pontos e ligações warfare`
-- `docs(warfare): documenta implementação e testes`
-
----
-
-## Fora do escopo inicial
-
-- persistência entre reinícios;
+- GameMode selecionado mostra preview.
+- HQ aparece azul.
+- Ordem `1` aparece como frente inicial.
+- Ordens seguintes ficam conectadas por linhas.
+- ID duplicado ou vazio fica invalido.
+- Lacuna de ordem fica invalida.
+
+### Runtime local
+
+- log mostra descoberta por descritores desativada;
+- log registra cada localizacao manual Warfare;
+- HQ nao spawna CQB/patrulha/batalha;
+- ponto de ordem `1` spawna inimigos ao aproximar;
+- primeira baixa muda para `UNDER_ATTACK`;
+- eliminar a guarnicao muda para `CLEARED_WAITING` ou captura;
+- entrar no raio captura o ponto;
+- proxima ordem so libera quando a ordem anterior inteira foi capturada.
+
+### Mapa
+
+- abrir mapa mostra todos os pontos;
+- pan/zoom mantem posicoes corretas;
+- tooltip mostra nome, categoria, estado, manpower e onda;
+- abrir/fechar repetidamente nao duplica icones;
+- JIP recebe snapshot atual.
+
+## Fora do escopo atual
+
+- descoberta automatica de objetivos Warfare;
+- modo hibrido;
 - recaptura inimiga;
-- economia e recompensas;
-- construção de bases;
-- novos pontos de respawn;
-- comandante estratégico;
-- encerramento obrigatório da sessão;
-- balanceamento dinâmico avançado por quantidade de jogadores.
-
-Esses sistemas devem usar as APIs e eventos do Warfare em fases posteriores.
+- persistencia entre reinicios;
+- economia/recompensas;
+- novos respawns de jogador;
+- encerramento automatico de sessao.

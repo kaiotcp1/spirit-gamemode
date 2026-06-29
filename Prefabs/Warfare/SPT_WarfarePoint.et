@@ -1,0 +1,7 @@
+GenericEntity {
+ ID "B1F6A2439C8D7501"
+ components {
+  SPT_WarfarePointComponent "{B1F6A2439C8D7502}" {
+  }
+ }
+}

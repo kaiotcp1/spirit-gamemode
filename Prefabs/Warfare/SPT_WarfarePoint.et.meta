@@ -1,0 +1,17 @@
+MetaFileClass {
+ Name "{B1F6A2439C8D7500}Prefabs/Warfare/SPT_WarfarePoint.et"
+ Configurations {
+  ENTResourceClass PC {
+  }
+  ENTResourceClass XBOX_ONE : PC {
+  }
+  ENTResourceClass XBOX_SERIES : PC {
+  }
+  ENTResourceClass PS4 : PC {
+  }
+  ENTResourceClass PS5 : PC {
+  }
+  ENTResourceClass HEADLESS : PC {
+  }
+ }
+}

@@ -1,47 +1,83 @@
-# Ícones Warfare no mapa tático
+# Icones Warfare no mapa tatico
 
-## Implementação atual
+Data de referencia: 2026-06-29.
 
-Os objetivos Warfare são exibidos automaticamente sobre o mapa tático padrão do
-jogador. Não existe mais um mapa fullscreen separado nem uma ação no mundo para
-abri-lo.
+## Estado atual
 
-O renderer cliente usa os eventos de `SCR_MapEntity`:
+Os objetivos Warfare aparecem automaticamente no mapa tatico padrao do jogador.
 
-1. `OnMapOpen` cria um overlay transparente como filho do root do mapa.
-2. `EOnFrame` usa `SCR_MapEntity.WorldToScreen()` para acompanhar pan e zoom.
-3. `OnMapClose` remove widgets, referências e o frame event.
+Nao existe mais:
 
-O renderer é mantido por referência forte no
-`SPT_WarfareGameModeComponent`. O componente somente habilita frames enquanto o
-mapa está aberto.
+- mapa Canvas independente;
+- action no mundo para abrir mapa Warfare;
+- proxy/prefab de quadro para mapa;
+- dependencia de descritores automaticos para criar objetivos.
 
-## Arquivos principais
+Os pontos exibidos no mapa sao exclusivamente os `SPT_WarfarePoint` colocados no World Editor.
+
+## Arquitetura
 
 | Arquivo | Responsabilidade |
 |---|---|
-| `Scripts/Game/UI/SPT_WarfareMapRenderer.c` | Renderização, formas, cores, pulso e tooltip |
-| `Scripts/Game/GameMode/SPT_WarfareGameModeComponent.c` | Estado autoritativo, RPCs e snapshot JIP |
-| `UI/Layouts/WarfareMap.layout` | Canvas transparente e widgets do tooltip |
+| `Scripts/Game/UI/SPT_WarfareMapRenderer.c` | Overlay, desenho dos icones, tooltip, pulso e limpeza de callbacks |
+| `Scripts/Game/GameMode/SPT_WarfareGameModeComponent.c` | Estado autoritativo, cache cliente, RPCs e snapshot JIP |
+| `UI/Layouts/WarfareMap.layout` | Layout transparente anexado ao root do mapa |
+| `Prefabs/Warfare/SPT_WarfarePoint.et` | Fonte manual dos objetivos exibidos |
 
-## Apresentação
+O renderer cliente e mantido por referencia forte no `SPT_WarfareGameModeComponent`.
 
-Cada tipo de ponto recebe uma forma geométrica própria:
+## Ciclo do mapa
+
+1. `SCR_MapEntity.GetOnMapOpen()` cria o overlay como filho do root real do mapa.
+2. Enquanto o mapa esta aberto, `EOnFrame` atualiza os icones.
+3. `SCR_MapEntity.WorldToScreen()` converte a posicao de mundo para tela, acompanhando pan e zoom.
+4. `SCR_MapEntity.GetOnMapClose()` remove widgets, referencias e frame mask.
+
+O renderer impede overlays duplicados quando o mapa e reaberto varias vezes.
+
+## Dados usados pelo renderer
+
+O renderer nao consulta entidades do mundo diretamente. Ele usa:
+
+```c
+GetClientPointMapData(...)
+```
+
+Esse getter agrega no cliente:
+
+- ID;
+- nome;
+- posicao;
+- tipo;
+- estado;
+- se e HQ;
+- manpower atual;
+- indice/situacao da onda de reforco.
+
+O servidor envia:
+
+- snapshot completo por `RplSave`/`RplLoad`, usado por JIP;
+- RPC confiavel para mudancas posteriores de estado;
+- RPC de registro dos pontos.
+
+## Formas por tipo
 
 | Tipo | Forma |
 |---|---|
-| Cidade | Círculo |
+| Cidade | Circulo |
 | Vila | Losango |
 | Base militar | Quadrado |
 | Aeroporto | Estrela |
-| Ruína | Octógono |
-| Porto | Pentágono |
-| Floresta | Hexágono |
-| Montanha | Triângulo |
-| Campo | Retângulo |
-| Personalizado | Decágono |
+| Ruina | Octogono |
+| Porto | Pentagono |
+| Floresta | Hexagono |
+| Montanha | Triangulo |
+| Campo | Retangulo |
+| Personalizado | Decagono |
 
-O preenchimento representa o estado:
+As formas sao procedurais. Nao ha dependencia de textura nova.
+
+## Cores por estado
 
 | Estado | Cor |
 |---|---|
@@ -52,29 +88,42 @@ O preenchimento representa o estado:
 | `CAPTURED_DEFENDING` | Azul claro pulsante |
 | `CAPTURED` | Azul |
 
-Pontos HQ recebem um contorno branco adicional. Ao posicionar o mouse sobre um
-ícone, o tooltip mostra nome, HQ, categoria, estado, manpower e situação da onda
-de reforços.
+Pontos HQ recebem contorno extra para diferenciar a area inicial SAFE.
 
-## Replicação
+## Tooltip
 
-- O servidor continua sendo a autoridade dos estados Warfare.
-- Mudanças durante a partida usam RPC confiável.
-- `RplSave` serializa todos os pontos, posições, tipos, estados e dados de
-  combate.
-- `RplLoad` reconstrói o cache cliente para jogadores JIP sem disparar
-  notificações antigas.
-- `GetClientPointMapData()` fornece ao renderer uma leitura agregada e segura.
+Ao passar o mouse sobre um icone, o tooltip mostra:
 
-## Teste manual
+- nome;
+- categoria/tipo;
+- estado territorial;
+- indicador de HQ;
+- manpower;
+- situacao/onda dos reforcos.
 
-1. Compile o projeto no Workbench e verifique o console.
-2. Inicie Play Mode e aguarde a inicialização Warfare.
-3. Abra o mapa tático padrão.
-4. Confirme posição, cor, forma, tooltip, pan e zoom.
-5. Abra e feche o mapa repetidamente e confirme que não há ícones duplicados.
-6. Force uma transição de estado e confirme atualização imediata.
-7. Em servidor dedicado, conecte um cliente depois de uma captura e confirme o
-   snapshot JIP.
+## Relacao com a progressao manual
 
-O minimapa/HUD não faz parte desta implementação.
+O mapa apenas apresenta o estado calculado pelo Warfare.
+
+A ordem de captura nao e configurada no mapa. Ela vem do atributo `Capture Order` de cada `SPT_WarfarePoint`:
+
+- `0`: HQ SAFE, ja capturada;
+- `1`: primeira frente;
+- `2+`: etapas seguintes.
+
+Quando uma ordem inteira e capturada, o servidor muda os pontos da proxima ordem para `FRONTLINE` e replica a atualizacao para o mapa.
+
+## Checklist de teste
+
+1. Compile os scripts no Workbench.
+2. Garanta que existem `SPT_WarfarePoint` salvos na layer.
+3. Rode Play Mode.
+4. Aguarde o log de inicializacao Warfare.
+5. Abra o mapa tatico nativo.
+6. Confirme que todos os pontos aparecem.
+7. Verifique cor, forma, tooltip, pan e zoom.
+8. Abra e feche o mapa varias vezes; nao deve duplicar icones.
+9. Capture um ponto e confirme atualizacao imediata.
+10. Teste JIP em cliente remoto/dedicado.
+
+O minimapa e HUD nao fazem parte desta implementacao.
