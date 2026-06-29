@@ -355,6 +355,17 @@ class SPT_GarrisonManager
 		m_bHoldPollRunning = true;
 	}
 
+	//! Forca a reinicializacao do loop HoldPoll, mesmo que a flag interna
+	//! indique que ja esta rodando. Usado pelo spawn assincrono para
+	//! garantir que patrulhas recebam waypoints independente do timing.
+	void ForceRestartHoldPoll()
+	{
+		// Remove qualquer registro anterior para evitar duplicacao
+		GetGame().GetCallqueue().Remove(HoldPoll);
+		m_bHoldPollRunning = false;
+		EnsureHoldPoll();
+	}
+
 	// Loop periodico executado enquanto houver soldados guarnecidos:
 	// levanta quem estiver deitado (prone) e mantem a direcao de vigilancia de cada um
 	protected void HoldPoll()

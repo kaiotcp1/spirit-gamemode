@@ -17,7 +17,55 @@ class SPT_GroupSpawnRecord : Managed
 
 	//! Verdadeiro se o grupo foi spawnado como grupo interior CQB, falso para grupo de patrulha.
 	bool m_bIsCQB;
+	bool m_bIsBattleGroup;
+	ResourceName m_rVehiclePrefab;
 
+}
+
+//! Item enfileirado para spawn assincrono de um unico grupo de guarnicao.
+//! A fila processa um item por tick, distribuindo o custo de spawn ao longo
+//! de varios quadros e evitando picos de lag em cidades grandes.
+class SPT_GarrisonSpawnRequest : Managed
+{
+	//! Localizacao dona deste spawn.
+	SPT_GarrisonLocation m_Location;
+
+	//! Prefab do grupo (SCR_AIGroup) a ser instanciado.
+	ResourceName m_rGroupPrefab;
+
+	//! Centro de spawn no mundo.
+	vector m_vSpawnPosition;
+
+	//! Centro da cidade, usado para roteamento de patrulha.
+	vector m_vCityCenter;
+
+	//! Verdadeiro se for grupo CQB de interior, falso se for patrulha.
+	bool m_bIsCQB;
+
+	//! Verdadeiro se este spawn vem de um cache (stream-in) e usa
+	//! SpawnGroupWithMembers em vez de SpawnGroup.
+	bool m_bIsFromCache;
+
+	//! Lista de prefabs dos membros vivos (apenas para cache restore).
+	ref array<ResourceName> m_aAliveMembers;
+
+	//! Limite de unidades mobilizaveis por budget (-1 = ilimitado).
+	int m_iMaxDeployableUnits;
+
+	//! Geracao da fila no momento em que a requisicao foi criada. Requisicoes
+	//! antigas sao descartadas depois de stream-out/cancelamento.
+	int m_iGeneration;
+
+	//! Quantidade estimada reservada na fila para contabilizar manpower.
+	int m_iExpectedUnits;
+	bool m_bIsBattleSpawn;
+	SPT_BattleWave m_BattleWave;
+
+	void SPT_GarrisonSpawnRequest()
+	{
+		m_aAliveMembers = new array<ResourceName>();
+		m_iMaxDeployableUnits = -1;
+	}
 }
 
 class SPT_GarrisonLocation : Managed
@@ -38,6 +86,9 @@ class SPT_GarrisonLocation : Managed
 	int m_iMaxBudget;
 	int m_iBudgetRemaining;
 	int m_iTargetManpower;
+	int m_iSpawnGeneration;
+	int m_iQueuedSpawnUnits;
+	int m_iQueuedGarrisonUnits;
 	ref array<EntityID> m_aGroupIds = new array<EntityID>();
 
 	//! Estado dos grupos salvos durante o stream-out para que apenas sobreviventes
@@ -48,6 +99,7 @@ class SPT_GarrisonLocation : Managed
 	//! Array paralelo ao m_aGroupIds que rastreia metadados de spawn de cada grupo.
 	//! Usado pelo stream-out (caching) para saber qual prefab e posicao salvar.
 	ref array<ref SPT_GroupSpawnRecord> m_aGroupRecords = new array<ref SPT_GroupSpawnRecord>();
+	ref SPT_LocationBattleState m_Battle = new SPT_LocationBattleState();
 
 	void SPT_GarrisonLocation(vector center, string name, int descriptorType)
 	{
@@ -105,10 +157,11 @@ class SPT_GarrisonLocation : Managed
 		m_iBudgetRemaining = Math.Max(0, m_iBudgetRemaining - deployedUnits);
 	}
 
-	//! Forca total representada por agentes vivos, filas de spawn dos grupos e cache.
+	//! Forca total representada por agentes vivos, filas de spawn dos grupos,
+	//! requisicoes do manager e cache.
 	int GetTotalManpower()
 	{
-		int total = GetCachedManpower();
+		int total = GetCachedManpower() + m_iQueuedSpawnUnits;
 		BaseWorld world = GetGame().GetWorld();
 		if (!world)
 			return total;
@@ -143,7 +196,48 @@ class SPT_GarrisonLocation : Managed
 
 	void RefreshClearedState()
 	{
-		m_bCleared = !CanDeployUnits() && GetTotalManpower() < 1;
+		// Budget restante representa reserva para uma batalha explicita. Ele nao
+		// impede que a guarnicao local seja considerada completamente eliminada.
+		if (!m_bHasCachedSnapshot)
+			return;
+
+		int garrisonManpower = GetCachedGarrisonManpower() + GetActiveGarrisonManpower();
+		m_bCleared = garrisonManpower < 1 && GetQueuedGarrisonRequests() < 1;
+	}
+
+	int GetCachedGarrisonManpower()
+	{
+		int total;
+		foreach (SPT_StreamableGarrisonGroup cached : m_aCachedGroups)
+		{
+			if (!cached.m_bIsBattleGroup)
+				total += cached.GetCachedManpower();
+		}
+		return total;
+	}
+
+	int GetActiveGarrisonManpower()
+	{
+		int total;
+		BaseWorld world = GetGame().GetWorld();
+		if (!world)
+			return 0;
+
+		foreach (int i, EntityID groupId : m_aGroupIds)
+		{
+			if (i < m_aGroupRecords.Count() && m_aGroupRecords[i].m_bIsBattleGroup)
+				continue;
+
+			SCR_AIGroup group = SCR_AIGroup.Cast(world.FindEntityByID(groupId));
+			if (group)
+				total += group.GetAgentsCount() + group.GetSpawnQueueSize();
+		}
+		return total;
+	}
+
+	int GetQueuedGarrisonRequests()
+	{
+		return m_iQueuedGarrisonUnits;
 	}
 }
 
@@ -158,6 +252,14 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 	protected const float PATROL_SPAWN_GROUP_CLEARANCE_M = 40.0;
 	protected const int PATROL_SPAWN_RING_COUNT = 4;
 	protected const int PATROL_SPAWN_SAMPLES_PER_RING = 24;
+	protected const int BATTLE_UPDATE_INTERVAL_MS = 5000;
+
+	protected static SPT_WorldGarrisonManagerComponent s_Instance;
+
+	static SPT_WorldGarrisonManagerComponent GetInstance()
+	{
+		return s_Instance;
+	}
 
 	[Attribute("0", desc: "Enable detailed diagnostic logs with the [SPT_WorldGarrison][DEBUG] prefix")]
 	protected bool m_bDebug;
@@ -182,6 +284,51 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 
 	[Attribute("50", desc: "Lifetime unit deployment budget for each location. New units consume one point; cached survivors are free to restore. Set to 0 for unlimited reinforcements.")]
 	protected int m_iLocationBudget;
+
+	[Attribute("0", desc: "Intervalo em milissegundos entre cada spawn individual processado pela fila assincrona. 0 = spawn sincrono de todos os grupos no mesmo quadro (legado). Valores tipicos: 50-200ms.")]
+	protected int m_iSpawnIntervalMs;
+
+	[Attribute("30000", desc: "Atraso minimo da primeira onda de uma batalha explicita, em milissegundos.", category: "Batalha")]
+	protected int m_iBattleInitialDelayMinMs;
+
+	[Attribute("90000", desc: "Atraso maximo da primeira onda de uma batalha explicita, em milissegundos.", category: "Batalha")]
+	protected int m_iBattleInitialDelayMaxMs;
+
+	[Attribute("180000", desc: "Intervalo minimo entre ondas, em milissegundos.", category: "Batalha")]
+	protected int m_iBattleWaveDelayMinMs;
+
+	[Attribute("420000", desc: "Intervalo maximo entre ondas, em milissegundos.", category: "Batalha")]
+	protected int m_iBattleWaveDelayMaxMs;
+
+	[Attribute("10", desc: "Quantidade minima de unidades planejada para uma onda.", category: "Batalha")]
+	protected int m_iBattleWaveUnitsMin;
+
+	[Attribute("30", desc: "Quantidade maxima de unidades planejada para uma onda.", category: "Batalha")]
+	protected int m_iBattleWaveUnitsMax;
+
+	[Attribute("0.5", desc: "Proporcao de sobreviventes que antecipa a proxima onda.", category: "Batalha")]
+	protected float m_fBattleWaveAliveThreshold;
+
+	[Attribute("0.3", desc: "Peso da estrategia concentrada.", category: "Batalha")]
+	protected float m_fBattleConcentratedWeight;
+
+	[Attribute("0.4", desc: "Peso da estrategia espalhada.", category: "Batalha")]
+	protected float m_fBattleSpreadedWeight;
+
+	[Attribute("0.3", desc: "Peso da estrategia de comboio.", category: "Batalha")]
+	protected float m_fBattleConvoyWeight;
+
+	[Attribute("300", desc: "Distancia minima de deployment das ondas.", category: "Batalha")]
+	protected float m_fBattleSpawnDistanceMin;
+
+	[Attribute("900", desc: "Distancia maxima de deployment das ondas.", category: "Batalha")]
+	protected float m_fBattleSpawnDistanceMax;
+
+	[Attribute("", desc: "Veiculos e respectivos grupos de tripulacao disponiveis para comboios.", category: "Batalha")]
+	protected ref array<ref SPT_BattleVehicleConfig> m_aBattleVehicles;
+
+	[Attribute("$profile:/SPT_RoadNetwork.json", desc: "Caminho do JSON de rede viaria gerado no Workbench.", category: "Batalha")]
+	protected string m_sRoadNetworkDatasetPath;
 
 	[Attribute("175", desc: "Radius around each map location used to find buildings")]
 	protected float m_fBuildingSearchRadius;
@@ -216,6 +363,12 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 	protected ref array<ref SPT_GarrisonLocation> m_aLocations = new array<ref SPT_GarrisonLocation>();
 	protected int m_iDebugUpdateCounter;
 
+	//! Fila de spawns pendentes processados um por tick.
+	protected ref array<ref SPT_GarrisonSpawnRequest> m_aPendingSpawns = new array<ref SPT_GarrisonSpawnRequest>();
+
+	//! Verdadeiro enquanto o CallLater de ProcessSpawnQueue esta ativo.
+	protected bool m_bProcessingSpawnQueue;
+
 	override void OnPostInit(IEntity owner)
 	{
 		super.OnPostInit(owner);
@@ -237,12 +390,17 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			return;
 		}
 
+		s_Instance = this;
+		if (!m_sRoadNetworkDatasetPath.IsEmpty())
+			SPT_RoadNetworkService.Load(m_sRoadNetworkDatasetPath);
+
 		ValidateSettings();
 		DebugLog(string.Format("Inicializacao agendada em 1000 ms | gruposCQB=%1 | gruposPatrulha=%2",
 			GetCQBGroupPrefabCount(), GetPatrolGroupPrefabCount()));
 		if (m_iGameMasterAIBudget > 0)
 			GetGame().GetCallqueue().CallLater(ConfigureGameMasterBudget, 1000, false, 10);
 		GetGame().GetCallqueue().CallLater(InitializeLocations, 1000, false);
+		GetGame().GetCallqueue().CallLater(UpdateBattles, BATTLE_UPDATE_INTERVAL_MS, true);
 	}
 
 	protected void ValidateSettings()
@@ -258,6 +416,19 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 
 		if (m_fUpdateInterval < 0.25)
 			m_fUpdateInterval = 0.25;
+
+		if (m_iSpawnIntervalMs < 0)
+			m_iSpawnIntervalMs = 0;
+
+		m_iBattleInitialDelayMinMs = Math.Max(0, m_iBattleInitialDelayMinMs);
+		m_iBattleInitialDelayMaxMs = Math.Max(m_iBattleInitialDelayMinMs, m_iBattleInitialDelayMaxMs);
+		m_iBattleWaveDelayMinMs = Math.Max(1000, m_iBattleWaveDelayMinMs);
+		m_iBattleWaveDelayMaxMs = Math.Max(m_iBattleWaveDelayMinMs, m_iBattleWaveDelayMaxMs);
+		m_iBattleWaveUnitsMin = Math.Max(1, m_iBattleWaveUnitsMin);
+		m_iBattleWaveUnitsMax = Math.Max(m_iBattleWaveUnitsMin, m_iBattleWaveUnitsMax);
+		m_fBattleWaveAliveThreshold = Math.Clamp(m_fBattleWaveAliveThreshold, 0.0, 1.0);
+		m_fBattleSpawnDistanceMin = Math.Max(100.0, m_fBattleSpawnDistanceMin);
+		m_fBattleSpawnDistanceMax = Math.Max(m_fBattleSpawnDistanceMin, m_fBattleSpawnDistanceMax);
 
 		if (m_iGameMasterAIBudget < 0)
 			m_iGameMasterAIBudget = 0;
@@ -506,7 +677,7 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		{
 			if (location.m_bUnavailable)
 				continue;
-			if (location.m_bCleared)
+			if (location.m_bCleared && !location.m_Battle.m_bActive)
 				continue;
 			if (location.m_bSpawning)
 				continue;
@@ -528,11 +699,11 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			{
 				// Um snapshot vazio tem significado: esta localizacao foi
 				// completamente eliminada e nao deve receber uma guarnicao nova.
-				if (m_bEnableCaching && location.m_bHasCachedSnapshot && location.m_aCachedGroups.IsEmpty() && !location.CanDeployUnits())
+				if (m_bEnableCaching && location.m_bHasCachedSnapshot && location.m_aCachedGroups.IsEmpty())
 				{
 					location.RefreshClearedState();
 					if (logThisUpdate)
-						DebugLog(string.Format("Local limpo sem reserva para novas tropas | nome=%1 | budgetRestante=%2.",
+						DebugLog(string.Format("Guarnicao local eliminada | nome=%1 | reservaBatalha=%2.",
 							location.m_sName, location.m_iBudgetRemaining));
 					continue;
 				}
@@ -602,6 +773,606 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		return nearestSq;
 	}
 
+	//! Inicia uma batalha explicita na localizacao registrada mais proxima.
+	//! O stream-in comum nunca chama este metodo.
+	bool StartLocationBattle(vector position)
+	{
+		if (!Replication.IsServer())
+			return false;
+
+		SPT_GarrisonLocation location = FindNearestLocation(position);
+		if (!location || location.m_Battle.m_bActive || !location.CanDeployUnits())
+			return false;
+
+		location.m_Battle.Reset();
+		location.m_Battle.m_bActive = true;
+		location.m_Battle.m_iTimerMs = RandomRangeInt(
+			m_iBattleInitialDelayMinMs,
+			m_iBattleInitialDelayMaxMs);
+		BuildBattleWaves(location);
+
+		if (location.m_Battle.m_aWaves.IsEmpty())
+		{
+			location.m_Battle.Reset();
+			return false;
+		}
+
+		Print(string.Format("[SPT_WorldGarrison] Batalha iniciada | local=%1 | ondas=%2 | reserva=%3 | atrasoInicialMs=%4",
+			location.m_sName,
+			location.m_Battle.m_aWaves.Count(),
+			location.m_iBudgetRemaining,
+			location.m_Battle.m_iTimerMs));
+		return true;
+	}
+
+	bool CancelLocationBattle(vector position)
+	{
+		if (!Replication.IsServer())
+			return false;
+
+		SPT_GarrisonLocation location = FindNearestLocation(position);
+		if (!location || !location.m_Battle.m_bActive)
+			return false;
+
+		location.m_Battle.m_bCancelled = true;
+		location.m_Battle.m_bActive = false;
+		CancelPendingBattleSpawns(location);
+		RemoveBattleForces(location);
+		Print(string.Format("[SPT_WorldGarrison] Batalha cancelada | local=%1 | reserva=%2",
+			location.m_sName, location.m_iBudgetRemaining));
+		return true;
+	}
+
+	protected void RemoveBattleForces(notnull SPT_GarrisonLocation location)
+	{
+		BaseWorld world = GetGame().GetWorld();
+		for (int i = location.m_aGroupIds.Count() - 1; i >= 0; i--)
+		{
+			if (i >= location.m_aGroupRecords.Count() || !location.m_aGroupRecords[i].m_bIsBattleGroup)
+				continue;
+			SCR_AIGroup group = SCR_AIGroup.Cast(world.FindEntityByID(location.m_aGroupIds[i]));
+			if (group)
+				DeleteGroup(group);
+			location.m_aGroupIds.Remove(i);
+			location.m_aGroupRecords.Remove(i);
+		}
+
+		for (int cacheIndex = location.m_aCachedGroups.Count() - 1; cacheIndex >= 0; cacheIndex--)
+		{
+			if (location.m_aCachedGroups[cacheIndex].m_bIsBattleGroup)
+				location.m_aCachedGroups.Remove(cacheIndex);
+		}
+
+		foreach (EntityID vehicleId : location.m_Battle.m_aVehicleIds)
+		{
+			IEntity vehicle = world.FindEntityByID(vehicleId);
+			if (vehicle)
+				SCR_EntityHelper.DeleteEntityAndChildren(vehicle);
+		}
+		location.m_Battle.m_aVehicleIds.Clear();
+	}
+
+	bool IsLocationBattleActive(vector position)
+	{
+		SPT_GarrisonLocation location = FindNearestLocation(position);
+		return location && location.m_Battle.m_bActive;
+	}
+
+	protected SPT_GarrisonLocation FindNearestLocation(vector position)
+	{
+		SPT_GarrisonLocation best;
+		float bestSq = m_fSpawnDistance * m_fSpawnDistance;
+		foreach (SPT_GarrisonLocation location : m_aLocations)
+		{
+			float distanceSq = HorizontalDistanceSq(position, location.m_vCenter);
+			if (distanceSq > bestSq)
+				continue;
+			bestSq = distanceSq;
+			best = location;
+		}
+		return best;
+	}
+
+	protected void BuildBattleWaves(notnull SPT_GarrisonLocation location)
+	{
+		int available = location.m_iBudgetRemaining;
+		if (location.HasUnlimitedBudget())
+			available = m_iBattleWaveUnitsMax * 3;
+
+		static const array<ref array<float>> patterns = {
+			{0.2, 0.3, 0.5},
+			{0.3, 0.3, 0.4},
+			{0.4, 0.4, 0.2},
+			{0.5, 0.3, 0.2}
+		};
+		int patternIndex = Math.RandomInt(0, patterns.Count());
+		int original = available;
+		int waveIndex;
+
+		while (available > 0)
+		{
+			float factor = 1.0;
+			if (waveIndex < 3)
+				factor = patterns[patternIndex][waveIndex];
+
+			int waveUnits = Math.ClampInt(
+				original * factor,
+				m_iBattleWaveUnitsMin,
+				m_iBattleWaveUnitsMax);
+			waveUnits = Math.Min(waveUnits, available);
+			if (available - waveUnits < m_iBattleWaveUnitsMin)
+				waveUnits = available;
+
+			SPT_BattleWave wave = new SPT_BattleWave();
+			wave.m_iUnitBudget = waveUnits;
+			wave.m_eStrategy = SelectBattleStrategy();
+			location.m_Battle.m_aWaves.Insert(wave);
+			available -= waveUnits;
+			waveIndex++;
+		}
+	}
+
+	protected SPT_EDeploymentStrategy SelectBattleStrategy()
+	{
+		float concentrated = Math.Max(0.0, m_fBattleConcentratedWeight);
+		float spreaded = Math.Max(0.0, m_fBattleSpreadedWeight);
+		float convoy = Math.Max(0.0, m_fBattleConvoyWeight);
+		float total = concentrated + spreaded + convoy;
+		if (total <= 0)
+			return SPT_EDeploymentStrategy.SPREADED;
+
+		float roll = Math.RandomFloat01() * total;
+		if (roll < concentrated)
+			return SPT_EDeploymentStrategy.CONCENTRATED;
+		if (roll < concentrated + spreaded)
+			return SPT_EDeploymentStrategy.SPREADED;
+		return SPT_EDeploymentStrategy.CONVOY;
+	}
+
+	protected void UpdateBattles()
+	{
+		array<vector> playerPositions = {};
+		CollectPlayerPositions(playerPositions);
+
+		foreach (SPT_GarrisonLocation location : m_aLocations)
+		{
+			SPT_LocationBattleState battle = location.m_Battle;
+			if (!battle.m_bActive)
+				continue;
+
+			if (battle.m_iTimerMs > 0)
+				battle.m_iTimerMs = Math.Max(0, battle.m_iTimerMs - BATTLE_UPDATE_INTERVAL_MS);
+
+			SPT_BattleWave currentWave;
+			if (battle.m_iCurrentWave >= 0 && battle.m_iCurrentWave < battle.m_aWaves.Count())
+				currentWave = battle.m_aWaves[battle.m_iCurrentWave];
+
+			if (currentWave && !currentWave.m_bDeploymentFinished)
+				continue;
+
+			int aliveBattle = CountAliveBattleUnits(location);
+			bool hasNext = battle.m_iCurrentWave + 1 < battle.m_aWaves.Count();
+			if (!hasNext)
+			{
+				if (aliveBattle < 1 && CountQueuedBattleRequests(location) < 1)
+				FinishLocationBattle(location);
+				continue;
+			}
+
+			bool deploy = battle.m_iCurrentWave < 0 && battle.m_iTimerMs == 0;
+			if (!deploy && battle.m_iTimerMs == 0)
+				deploy = true;
+			if (!deploy && currentWave && currentWave.m_iDeployedUnits > 0)
+				deploy = aliveBattle < currentWave.m_iDeployedUnits * m_fBattleWaveAliveThreshold;
+			if (!deploy || playerPositions.IsEmpty())
+				continue;
+
+			float activationSq = m_fSpawnDistance * m_fSpawnDistance;
+			if (GetNearestPlayerDistanceSq(location.m_vCenter, playerPositions) > activationSq)
+				continue;
+
+			DeployNextBattleWave(location);
+		}
+	}
+
+	protected void FinishLocationBattle(notnull SPT_GarrisonLocation location)
+	{
+		location.m_Battle.m_bActive = false;
+		Print(string.Format("[SPT_WorldGarrison] Batalha encerrada | local=%1 | ondas=%2 | reserva=%3",
+			location.m_sName,
+			location.m_Battle.m_aWaves.Count(),
+			location.m_iBudgetRemaining));
+	}
+
+	protected int CountAliveBattleUnits(notnull SPT_GarrisonLocation location)
+	{
+		int total;
+		BaseWorld world = GetGame().GetWorld();
+		foreach (int i, EntityID groupId : location.m_aGroupIds)
+		{
+			if (i >= location.m_aGroupRecords.Count() || !location.m_aGroupRecords[i].m_bIsBattleGroup)
+				continue;
+			SCR_AIGroup group = SCR_AIGroup.Cast(world.FindEntityByID(groupId));
+			if (group)
+				total += group.GetAgentsCount() + group.GetSpawnQueueSize();
+		}
+		return total;
+	}
+
+	protected int CountQueuedBattleRequests(notnull SPT_GarrisonLocation location)
+	{
+		int total;
+		foreach (SPT_GarrisonSpawnRequest req : m_aPendingSpawns)
+		{
+			if (req && req.m_Location == location && req.m_bIsBattleSpawn)
+				total++;
+		}
+		return total;
+	}
+
+	protected void DeployNextBattleWave(notnull SPT_GarrisonLocation location)
+	{
+		SPT_LocationBattleState battle = location.m_Battle;
+		int nextIndex = battle.m_iCurrentWave + 1;
+		if (nextIndex >= battle.m_aWaves.Count())
+			return;
+
+		SPT_BattleWave wave = battle.m_aWaves[nextIndex];
+		battle.m_iCurrentWave = nextIndex;
+		battle.m_iTimerMs = -1;
+
+		if (wave.m_eStrategy == SPT_EDeploymentStrategy.CONVOY && !CanDeployConvoy())
+		{
+			Print(string.Format("[SPT_WorldGarrison] CONVOY indisponivel; usando SPREADED | local=%1",
+				location.m_sName), LogLevel.WARNING);
+			wave.m_eStrategy = SPT_EDeploymentStrategy.SPREADED;
+		}
+
+		array<vector> positions = {};
+		int estimatedGroups = Math.Max(1, (wave.m_iUnitBudget + 7) / 8);
+		BuildBattleSpawnPositions(location, wave.m_eStrategy, estimatedGroups, positions);
+		if (positions.IsEmpty())
+		{
+			wave.m_bDeploymentFinished = true;
+			ScheduleNextBattleWave(location);
+			return;
+		}
+
+		if (wave.m_eStrategy == SPT_EDeploymentStrategy.CONVOY)
+			SpawnConvoyVehicles(location, wave, positions);
+
+		array<ResourceName> prefabs = {};
+		if (m_aPatrolGroupPrefabs)
+		{
+			foreach (ResourceName prefab : m_aPatrolGroupPrefabs)
+				if (!prefab.IsEmpty())
+					prefabs.Insert(prefab);
+		}
+		if (prefabs.IsEmpty())
+			return;
+
+		array<ref SPT_GarrisonSpawnRequest> requests = {};
+		int plannedUnits = wave.m_iDeployedUnits;
+		for (int i = 0; i < positions.Count() && plannedUnits < wave.m_iUnitBudget; i++)
+		{
+			int requestUnits = Math.Min(8, wave.m_iUnitBudget - plannedUnits);
+			SPT_GarrisonSpawnRequest req = new SPT_GarrisonSpawnRequest();
+			req.m_Location = location;
+			req.m_rGroupPrefab = prefabs[i % prefabs.Count()];
+			req.m_vSpawnPosition = positions[i];
+			req.m_vCityCenter = location.m_vCenter;
+			req.m_bIsCQB = false;
+			req.m_bIsBattleSpawn = true;
+			req.m_BattleWave = wave;
+			req.m_iMaxDeployableUnits = requestUnits;
+			req.m_iExpectedUnits = 1;
+			requests.Insert(req);
+			plannedUnits += requestUnits;
+		}
+
+		wave.m_iPendingRequests = requests.Count();
+		if (requests.IsEmpty())
+		{
+			wave.m_bDeploymentFinished = true;
+			ScheduleNextBattleWave(location);
+			return;
+		}
+
+		EnqueueSpawns(requests);
+		Print(string.Format("[SPT_WorldGarrison] Onda enfileirada | local=%1 | indice=%2 | estrategia=%3 | unidadesPlanejadas=%4 | grupos=%5",
+			location.m_sName,
+			nextIndex,
+			SCR_Enum.GetEnumName(SPT_EDeploymentStrategy, wave.m_eStrategy),
+			wave.m_iUnitBudget,
+			requests.Count()));
+	}
+
+	protected void SpawnConvoyVehicles(
+		notnull SPT_GarrisonLocation location,
+		notnull SPT_BattleWave wave,
+		notnull array<vector> positions)
+	{
+		if (!m_aBattleVehicles || m_aBattleVehicles.IsEmpty())
+			return;
+
+		int vehicleLimit = Math.Min(m_aBattleVehicles.Count(), positions.Count());
+		for (int i = vehicleLimit - 1; i >= 0; i--)
+		{
+			int waveRemaining = wave.m_iUnitBudget - wave.m_iDeployedUnits;
+			int budgetLimit = location.GetDeploymentLimit(waveRemaining);
+			if (budgetLimit < 1)
+				break;
+
+			SPT_BattleVehicleConfig config = m_aBattleVehicles[i % m_aBattleVehicles.Count()];
+			float roadYaw = (location.m_vCenter - positions[i]).ToYaw();
+			if (positions.Count() > 1)
+			{
+				int adjacent = i + 1;
+				if (adjacent >= positions.Count())
+					adjacent = i - 1;
+				roadYaw = (positions[i] - positions[adjacent]).ToYaw();
+			}
+			int crewSpawned;
+			IEntity vehicle = SpawnCrewedBattleVehicle(
+				location,
+				config,
+				positions[i],
+				roadYaw,
+				budgetLimit,
+				crewSpawned);
+			if (!vehicle)
+				continue;
+
+			location.ConsumeBudget(crewSpawned);
+			wave.m_iDeployedUnits += crewSpawned;
+			location.m_Battle.m_aVehicleIds.Insert(vehicle.GetID());
+			positions.Remove(i);
+		}
+	}
+
+	protected IEntity SpawnCrewedBattleVehicle(
+		notnull SPT_GarrisonLocation location,
+		notnull SPT_BattleVehicleConfig config,
+		vector position,
+		float yaw,
+		int maxCrew,
+		out int crewSpawned)
+	{
+		crewSpawned = 0;
+		if (config.m_rVehiclePrefab.IsEmpty() || config.m_rCrewGroupPrefab.IsEmpty())
+			return null;
+
+		Resource vehicleResource = Resource.Load(config.m_rVehiclePrefab);
+		Resource crewGroupResource = Resource.Load(config.m_rCrewGroupPrefab);
+		if (!vehicleResource || !crewGroupResource)
+			return null;
+
+		EntitySpawnParams params();
+		params.TransformMode = ETransformMode.WORLD;
+		Math3D.AnglesToMatrix(Vector(yaw, 0, 0), params.Transform);
+		params.Transform[3] = position;
+		IEntity vehicleEntity = GetGame().SpawnEntityPrefab(
+			vehicleResource,
+			GetGame().GetWorld(),
+			params);
+		Vehicle vehicle = Vehicle.Cast(vehicleEntity);
+		if (!vehicle)
+		{
+			if (vehicleEntity)
+				SCR_EntityHelper.DeleteEntityAndChildren(vehicleEntity);
+			return null;
+		}
+
+		BaseCompartmentManagerComponent compartmentManager = BaseCompartmentManagerComponent.Cast(
+			vehicle.FindComponent(BaseCompartmentManagerComponent));
+		if (!compartmentManager)
+		{
+			SCR_EntityHelper.DeleteEntityAndChildren(vehicle);
+			return null;
+		}
+
+		array<ResourceName> crewPrefabs = {};
+		if (!GetGroupMemberPrefabs(crewGroupResource, crewPrefabs))
+		{
+			SCR_EntityHelper.DeleteEntityAndChildren(vehicle);
+			return null;
+		}
+
+		array<BaseCompartmentSlot> compartments = {};
+		compartmentManager.GetCompartments(compartments);
+		AIGroup crewGroup;
+		int crewLimit = Math.Min(Math.Min(compartments.Count(), crewPrefabs.Count()), maxCrew);
+		for (int i = 0; i < crewLimit; i++)
+		{
+			if (!compartments[i])
+				continue;
+			IEntity character = compartments[i].SpawnCharacterInCompartment(
+				crewPrefabs[i],
+				crewGroup,
+				config.m_rCrewGroupPrefab);
+			if (character)
+				crewSpawned++;
+		}
+
+		SCR_AIGroup group = SCR_AIGroup.Cast(crewGroup);
+		if (crewSpawned < 1 || !group)
+		{
+			SCR_EntityHelper.DeleteEntityAndChildren(vehicle);
+			return null;
+		}
+
+		location.m_aGroupIds.Insert(group.GetID());
+		SPT_GroupSpawnRecord record = new SPT_GroupSpawnRecord();
+		record.m_rGroupPrefab = config.m_rCrewGroupPrefab;
+		record.m_vFallbackPosition = position;
+		record.m_bIsCQB = false;
+		record.m_bIsBattleGroup = true;
+		record.m_rVehiclePrefab = config.m_rVehiclePrefab;
+		location.m_aGroupRecords.Insert(record);
+		location.m_bActive = true;
+
+		SPT_AIGarrisonHelper.PatrolGroup(
+			group,
+			location.m_vCenter,
+			m_fPatrolRadius,
+			m_sPatrolWaypointPrefab,
+			m_ePatrolFormation,
+			m_ePatrolMovementType);
+		return vehicle;
+	}
+
+	protected SCR_AIGroup SpawnCachedBattleVehicle(
+		notnull SPT_GarrisonLocation location,
+		notnull SPT_StreamableGarrisonGroup cached,
+		out int crewSpawned)
+	{
+		crewSpawned = 0;
+		Resource vehicleResource = Resource.Load(cached.m_rVehiclePrefab);
+		if (!vehicleResource || cached.m_aAliveMembers.IsEmpty())
+			return null;
+
+		vector direction = location.m_vCenter - cached.m_vPosition;
+		EntitySpawnParams params();
+		params.TransformMode = ETransformMode.WORLD;
+		Math3D.AnglesToMatrix(Vector(direction.ToYaw(), 0, 0), params.Transform);
+		params.Transform[3] = cached.m_vPosition;
+		IEntity vehicleEntity = GetGame().SpawnEntityPrefab(
+			vehicleResource,
+			GetGame().GetWorld(),
+			params);
+		Vehicle vehicle = Vehicle.Cast(vehicleEntity);
+		if (!vehicle)
+		{
+			if (vehicleEntity)
+				SCR_EntityHelper.DeleteEntityAndChildren(vehicleEntity);
+			return null;
+		}
+
+		BaseCompartmentManagerComponent manager = BaseCompartmentManagerComponent.Cast(
+			vehicle.FindComponent(BaseCompartmentManagerComponent));
+		if (!manager)
+		{
+			SCR_EntityHelper.DeleteEntityAndChildren(vehicle);
+			return null;
+		}
+
+		array<BaseCompartmentSlot> compartments = {};
+		manager.GetCompartments(compartments);
+		AIGroup crewGroup;
+		int limit = Math.Min(compartments.Count(), cached.m_aAliveMembers.Count());
+		for (int i = 0; i < limit; i++)
+		{
+			if (!compartments[i])
+				continue;
+			IEntity character = compartments[i].SpawnCharacterInCompartment(
+				cached.m_aAliveMembers[i],
+				crewGroup,
+				cached.m_rGroupPrefab);
+			if (character)
+				crewSpawned++;
+		}
+
+		SCR_AIGroup group = SCR_AIGroup.Cast(crewGroup);
+		if (!group || crewSpawned != cached.m_aAliveMembers.Count())
+		{
+			SCR_EntityHelper.DeleteEntityAndChildren(vehicle);
+			return null;
+		}
+
+		location.m_Battle.m_aVehicleIds.Insert(vehicle.GetID());
+		SPT_AIGarrisonHelper.PatrolGroup(
+			group,
+			location.m_vCenter,
+			m_fPatrolRadius,
+			m_sPatrolWaypointPrefab,
+			m_ePatrolFormation,
+			m_ePatrolMovementType);
+		return group;
+	}
+
+	protected bool GetGroupMemberPrefabs(Resource groupResource, out array<ResourceName> members)
+	{
+		members.Clear();
+		EntitySpawnParams params();
+		params.TransformMode = ETransformMode.WORLD;
+		Math3D.MatrixIdentity4(params.Transform);
+		params.Transform[3] = Vector(0, -1000, 0);
+
+		SCR_AIGroup.IgnoreSpawning(true);
+		IEntity entity = GetGame().SpawnEntityPrefab(groupResource, GetGame().GetWorld(), params);
+		SCR_AIGroup.IgnoreSpawning(false);
+		SCR_AIGroup group = SCR_AIGroup.Cast(entity);
+		if (!group)
+		{
+			if (entity)
+				SCR_EntityHelper.DeleteEntityAndChildren(entity);
+			return false;
+		}
+
+		foreach (ResourceName prefab : group.m_aUnitPrefabSlots)
+			if (!prefab.IsEmpty())
+				members.Insert(prefab);
+		SCR_EntityHelper.DeleteEntityAndChildren(group);
+		return !members.IsEmpty();
+	}
+
+	protected void BuildBattleSpawnPositions(
+		notnull SPT_GarrisonLocation location,
+		SPT_EDeploymentStrategy strategy,
+		int count,
+		out array<vector> positions)
+	{
+		positions.Clear();
+		if (strategy == SPT_EDeploymentStrategy.CONVOY)
+		{
+			if (SPT_RoadNetworkService.FindConvoyPositions(
+				location.m_vCenter,
+				m_fBattleSpawnDistanceMin,
+				m_fBattleSpawnDistanceMax,
+				count,
+				20.0,
+				positions))
+				return;
+			strategy = SPT_EDeploymentStrategy.SPREADED;
+		}
+
+		float baseAngle = Math.RandomFloat01() * Math.PI * 2.0;
+		float concentratedAngle = baseAngle;
+		for (int i = 0; i < count; i++)
+		{
+			float angle = concentratedAngle;
+			if (strategy == SPT_EDeploymentStrategy.SPREADED)
+				angle = baseAngle + i * Math.PI * 2.0 / count;
+			float distance = m_fBattleSpawnDistanceMin
+				+ Math.RandomFloat01() * (m_fBattleSpawnDistanceMax - m_fBattleSpawnDistanceMin);
+			vector position = location.m_vCenter + Vector(
+				Math.Cos(angle) * distance,
+				0,
+				Math.Sin(angle) * distance);
+			position[1] = GetGame().GetWorld().GetSurfaceY(position[0], position[2]) + 0.2;
+			positions.Insert(position);
+		}
+	}
+
+	protected bool CanDeployConvoy()
+	{
+		return m_aBattleVehicles && !m_aBattleVehicles.IsEmpty() && SPT_RoadNetworkService.IsAvailable();
+	}
+
+	protected void ScheduleNextBattleWave(notnull SPT_GarrisonLocation location)
+	{
+		location.m_Battle.m_iTimerMs = RandomRangeInt(
+			m_iBattleWaveDelayMinMs,
+			m_iBattleWaveDelayMaxMs);
+	}
+
+	protected int RandomRangeInt(int minimum, int maximum)
+	{
+		if (maximum <= minimum)
+			return minimum;
+		return Math.RandomInt(minimum, maximum + 1);
+	}
+
 	protected void SpawnLocation(notnull SPT_GarrisonLocation location)
 	{
 		PruneMissingGroupIds(location);
@@ -613,10 +1384,10 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		// -----------------------------------------------------------------
 		if (m_bEnableCaching && location.m_bHasCachedSnapshot)
 		{
-			if (location.m_aCachedGroups.IsEmpty() && !location.CanDeployUnits())
+			if (location.m_aCachedGroups.IsEmpty())
 			{
 				location.RefreshClearedState();
-				DebugLog(string.Format("Spawn ignorado para %1: local sem manpower e sem budget restante.",
+				DebugLog(string.Format("Spawn de guarnicao ignorado para %1: snapshot completamente eliminado.",
 					location.m_sName));
 				return;
 			}
@@ -688,6 +1459,11 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		}
 		DebugLog(string.Format("Listas preparadas para spawn | CQB=%1 | patrulha=%2 | total=%3",
 			GetCQBGroupPrefabCount(), GetPatrolGroupPrefabCount(), groupPrefabs.Count()));
+
+		// Prepara requisicoes de spawn e enfileira para processamento assincrono.
+		// O spawn real acontece em ProcessSpawnQueue, um grupo por tick.
+		ref array<ref SPT_GarrisonSpawnRequest> requests = new array<ref SPT_GarrisonSpawnRequest>();
+
 		foreach (int prefabIndex, ResourceName groupPrefab : groupPrefabs)
 		{
 			bool patrolGroup = patrolFlags[prefabIndex];
@@ -736,79 +1512,27 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 				continue;
 			}
 
-			int spawnedUnits;
-			int groupCapacity;
 			int maxDeployableUnits = -1;
 			if (!location.HasUnlimitedBudget())
 				maxDeployableUnits = location.m_iBudgetRemaining;
 
-			DebugLog(string.Format("Spawnando grupo inicial | tipoPatrulha=%1 | indice=%2 | prefab=%3 | centroSpawn=%4 | limiteBudget=%5",
+			SPT_GarrisonSpawnRequest req = new SPT_GarrisonSpawnRequest();
+			req.m_Location = location;
+			req.m_rGroupPrefab = groupPrefab;
+			req.m_vSpawnPosition = spawnCenter;
+			req.m_vCityCenter = location.m_vCenter;
+			req.m_bIsCQB = !patrolGroup;
+			req.m_bIsFromCache = false;
+			req.m_iMaxDeployableUnits = maxDeployableUnits;
+			req.m_iGeneration = location.m_iSpawnGeneration;
+			req.m_iExpectedUnits = 1;
+			requests.Insert(req);
+
+			DebugLog(string.Format("Spawn enfileirado | tipoPatrulha=%1 | indice=%2 | prefab=%3 | centroSpawn=%4 | limiteBudget=%5",
 				patrolGroup, prefabIndex, groupPrefab, spawnCenter, maxDeployableUnits));
-			SCR_AIGroup group = SpawnGroup(groupResource, spawnCenter, spawnedUnits, groupCapacity, maxDeployableUnits);
-			if (!group)
-			{
-				Print(string.Format("[SPT_WorldGarrison] Falha ao spawnar grupo completo no indice %1: %2",
-					prefabIndex, groupPrefab), LogLevel.ERROR);
-				continue;
-			}
-
-			location.m_iTargetManpower = location.m_iTargetManpower + groupCapacity;
-
-			if (spawnedUnits < 1)
-			{
-				if (groupCapacity < 1)
-				{
-					Print(string.Format("[SPT_WorldGarrison] Grupo no indice %1 nao possui slots de unidades: %2",
-						prefabIndex, groupPrefab), LogLevel.ERROR);
-				}
-				else
-				{
-					DebugLog(string.Format("Grupo inicial nao mobilizado por falta de budget | indice=%1 | capacidade=%2",
-						prefabIndex, groupCapacity));
-				}
-
-				if (!DeleteGroup(group))
-				{
-					GetGame().GetCallqueue().CallLater(
-						RetryDeleteOrphanGroup,
-						250,
-						false,
-						group,
-						20
-					);
-				}
-				continue;
-			}
-
-			location.ConsumeBudget(spawnedUnits);
-			location.m_aGroupIds.Insert(group.GetID());
-
-			// Rastreia metadados do grupo para futuro stream-out caching
-			SPT_GroupSpawnRecord record = new SPT_GroupSpawnRecord();
-			record.m_rGroupPrefab = groupPrefab;
-			record.m_vFallbackPosition = spawnCenter;
-			record.m_bIsCQB = !patrolGroup;
-			location.m_aGroupRecords.Insert(record);
-
-			location.m_iPendingGroups++;
-			location.m_iDesiredUnits += spawnedUnits;
-			DebugLog(string.Format("Grupo inicial criado | id=%1 | membros=%2/%3 | centro=%4 | budgetRestante=%5",
-				group.GetID(), spawnedUnits, groupCapacity, spawnCenter, location.m_iBudgetRemaining));
-			GetGame().GetCallqueue().CallLater(
-				WaitForGroupMembers,
-				250,
-				false,
-				location,
-				group,
-				spawnCenter,
-				location.m_vCenter,
-				patrolGroup,
-				spawnedUnits,
-				20
-			);
 		}
 
-		if (location.m_aGroupIds.IsEmpty())
+		if (requests.IsEmpty())
 		{
 			location.m_bSpawning = false;
 			location.RefreshClearedState();
@@ -816,8 +1540,9 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			return;
 		}
 
-		Print(string.Format("[SPT_WorldGarrison] Guarnicao inicial solicitada em %1 | grupos=%2 | unidades=%3/%4 | budgetRestante=%5; aguardando agentes",
-			location.m_sName, location.m_aGroupIds.Count(), location.m_iDesiredUnits, location.m_iTargetManpower, location.m_iBudgetRemaining));
+		EnqueueSpawns(requests);
+		Print(string.Format("[SPT_WorldGarrison] Guarnicao inicial enfileirada em %1 | grupos=%2 | intervaloMs=%3; aguardando agentes",
+			location.m_sName, requests.Count(), m_iSpawnIntervalMs));
 	}
 
 	//! Restaura grupos cacheados (que sofreram stream-out) em vez de spawnar
@@ -854,7 +1579,11 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			DebugLog(string.Format("Spawnando grupo cacheado | indice=%1 | prefab=%2 | isCQB=%3 | vivos=%4 | posicao=%5",
 				cacheIndex, cached.m_rGroupPrefab, isCQB, cached.GetCachedManpower(), cached.m_vPosition));
 
-			SCR_AIGroup group = SpawnGroupWithMembers(groupResource, cached.m_vPosition, cached.m_aAliveMembers, spawnedUnits);
+			SCR_AIGroup group;
+			if (!cached.m_rVehiclePrefab.IsEmpty())
+				group = SpawnCachedBattleVehicle(location, cached, spawnedUnits);
+			else
+				group = SpawnGroupWithMembers(groupResource, cached.m_vPosition, cached.m_aAliveMembers, spawnedUnits);
 			if (!group)
 			{
 				Print(string.Format("[SPT_WorldGarrison] Falha ao spawnar grupo cacheado indice %1: %2",
@@ -900,6 +1629,8 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			record.m_rGroupPrefab = cached.m_rGroupPrefab;
 			record.m_vFallbackPosition = cached.m_vPosition;
 			record.m_bIsCQB = cached.m_bIsCQB;
+			record.m_bIsBattleGroup = cached.m_bIsBattleGroup;
+			record.m_rVehiclePrefab = cached.m_rVehiclePrefab;
 			location.m_aGroupRecords.Insert(record);
 
 			restoredGroups++;
@@ -927,13 +1658,6 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			location.m_aCachedGroups.Insert(failedCached);
 		location.m_bHasCachedSnapshot = !location.m_aCachedGroups.IsEmpty();
 
-		int currentManpower = location.GetTotalManpower();
-		int reinforcementDeficit = location.m_iTargetManpower - currentManpower;
-		int reinforcementUnits;
-		int reinforcementGroups;
-		if (reinforcementDeficit > 0 && location.CanDeployUnits())
-			reinforcementGroups = SpawnReinforcementGroups(location, reinforcementDeficit, reinforcementUnits);
-
 		if (location.m_aGroupIds.IsEmpty())
 		{
 			location.m_bSpawning = false;
@@ -951,173 +1675,266 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			return;
 		}
 
-		Print(string.Format("[SPT_WorldGarrison] Stream-in concluido em %1 | gruposRestaurados=%2 | gruposReforco=%3 | unidadesAtivas=%4/%5 | reforcosMobilizados=%6 | budgetRestante=%7 | cachePreservado=%8",
+		Print(string.Format("[SPT_WorldGarrison] Stream-in concluido em %1 | gruposRestaurados=%2 | unidadesAtivas=%3/%4 | reservaBatalha=%5 | cachePreservado=%6",
 			location.m_sName,
 			restoredGroups,
-			reinforcementGroups,
 			location.GetTotalManpower(),
 			location.m_iTargetManpower,
-			reinforcementUnits,
 			location.m_iBudgetRemaining,
 			location.m_aCachedGroups.Count()));
 	}
 
-	//! Mobiliza novas unidades para substituir baixas, limitado pelo manpower
-	//! alvo e pelo budget restante de tropas da localizacao.
-	protected int SpawnReinforcementGroups(
-		notnull SPT_GarrisonLocation location,
-		int requestedUnits,
-		out int deployedUnits)
+	//-----------------------------------------------------------------------
+	// FILA DE SPAWN ASSINCRONO (FASE 4)
+	//-----------------------------------------------------------------------
+
+	//! Adiciona uma lista de requisicoes de spawn a fila e inicia o
+	//! processamento tick-a-tick se ainda nao estiver rodando.
+	void EnqueueSpawns(notnull array<ref SPT_GarrisonSpawnRequest> requests)
 	{
-		deployedUnits = 0;
-		if (requestedUnits < 1 || !location.CanDeployUnits())
-			return 0;
+		if (!requests || requests.IsEmpty())
+			return;
 
-		array<vector> buildings = {};
-		SPT_GarrisonDetector.CollectBuildingCenters(
-			GetGame().GetWorld(),
-			location.m_vCenter,
-			m_fBuildingSearchRadius,
-			buildings
-		);
-		ShufflePositions(buildings);
-
-		array<ResourceName> groupPrefabs = {};
-		array<bool> patrolFlags = {};
-		if (m_aCQBGroupPrefabs)
+		foreach (int i, SPT_GarrisonSpawnRequest req : requests)
 		{
-			foreach (ResourceName cqbPrefab : m_aCQBGroupPrefabs)
-			{
-				groupPrefabs.Insert(cqbPrefab);
-				patrolFlags.Insert(false);
-			}
-		}
-		if (m_aPatrolGroupPrefabs)
-		{
-			foreach (ResourceName patrolPrefab : m_aPatrolGroupPrefabs)
-			{
-				groupPrefabs.Insert(patrolPrefab);
-				patrolFlags.Insert(true);
-			}
+			if (!req)
+				continue;
+			req.m_iGeneration = req.m_Location.m_iSpawnGeneration;
+			req.m_Location.m_iQueuedSpawnUnits += req.m_iExpectedUnits;
+			if (!req.m_bIsBattleSpawn)
+				req.m_Location.m_iQueuedGarrisonUnits += req.m_iExpectedUnits;
+			m_aPendingSpawns.Insert(req);
 		}
 
-		int reinforcementGroups;
-		int remainingDeficit = requestedUnits;
-		int buildingIndex;
-		int patrolSpawnIndex;
-		array<vector> patrolSpawnPositions = {};
-
-		foreach (int prefabIndex, ResourceName groupPrefab : groupPrefabs)
+		if (!m_bProcessingSpawnQueue)
 		{
-			if (remainingDeficit < 1 || !location.CanDeployUnits())
-				break;
+			m_bProcessingSpawnQueue = true;
+			int intervalMs = m_iSpawnIntervalMs;
+			if (intervalMs < 1)
+				intervalMs = 1;
+			GetGame().GetCallqueue().CallLater(ProcessSpawnQueue, intervalMs, false);
+		}
+	}
 
-			if (groupPrefab.IsEmpty())
+	//! Processa um unico spawn da fila por invocacao. Reagenda-se via
+	//! CallLater enquanto houver itens pendentes.
+	protected void ProcessSpawnQueue()
+	{
+		if (!m_aPendingSpawns || m_aPendingSpawns.IsEmpty())
+		{
+			m_bProcessingSpawnQueue = false;
+			return;
+		}
+
+		SPT_GarrisonSpawnRequest req = m_aPendingSpawns[0];
+		m_aPendingSpawns.Remove(0);
+
+		if (req)
+			DoSpawnSingle(req);
+
+		if (!m_aPendingSpawns || m_aPendingSpawns.IsEmpty())
+		{
+			m_bProcessingSpawnQueue = false;
+			return;
+		}
+
+		int intervalMs = m_iSpawnIntervalMs;
+		if (intervalMs < 1)
+			intervalMs = 1;
+		GetGame().GetCallqueue().CallLater(ProcessSpawnQueue, intervalMs, false);
+	}
+
+	//! Invalida e remove todos os spawns ainda nao materializados desta
+	//! localizacao. A geracao tambem protege contra callbacks ja retirados da
+	//! fila no mesmo frame.
+	protected void CancelPendingSpawns(notnull SPT_GarrisonLocation location)
+	{
+		location.m_iSpawnGeneration++;
+
+		for (int i = m_aPendingSpawns.Count() - 1; i >= 0; i--)
+		{
+			SPT_GarrisonSpawnRequest req = m_aPendingSpawns[i];
+			if (!req || req.m_Location != location)
 				continue;
 
-			bool patrolGroup = patrolFlags[prefabIndex];
-			vector spawnCenter;
-			if (patrolGroup)
+			location.m_iQueuedSpawnUnits = Math.Max(
+				0,
+				location.m_iQueuedSpawnUnits - req.m_iExpectedUnits);
+			if (!req.m_bIsBattleSpawn)
 			{
-				if (!FindOutdoorPatrolSpawn(
-					location.m_vCenter,
-					m_fPatrolRadius,
-					buildings,
-					patrolSpawnPositions,
-					patrolSpawnIndex,
-					spawnCenter))
-				{
-					Print(string.Format("[SPT_WorldGarrison] Reforco ignorado: nenhum ponto externo | indice=%1 | local=%2",
-						prefabIndex, location.m_sName), LogLevel.WARNING);
-					continue;
-				}
-				patrolSpawnPositions.Insert(spawnCenter);
-				patrolSpawnIndex++;
+				location.m_iQueuedGarrisonUnits = Math.Max(
+					0,
+					location.m_iQueuedGarrisonUnits - req.m_iExpectedUnits);
 			}
-			else if (!buildings.IsEmpty())
+			else if (req.m_BattleWave)
 			{
-				int selectedBuilding = buildingIndex % buildings.Count();
-				spawnCenter = buildings[selectedBuilding];
-				buildingIndex++;
+				req.m_BattleWave.m_iPendingRequests = Math.Max(
+					0,
+					req.m_BattleWave.m_iPendingRequests - 1);
+				if (req.m_BattleWave.m_iPendingRequests == 0)
+					req.m_BattleWave.m_bDeploymentFinished = true;
+			}
+			m_aPendingSpawns.Remove(i);
+		}
+
+		location.RefreshClearedState();
+	}
+
+	protected void CancelPendingBattleSpawns(notnull SPT_GarrisonLocation location)
+	{
+		for (int i = m_aPendingSpawns.Count() - 1; i >= 0; i--)
+		{
+			SPT_GarrisonSpawnRequest req = m_aPendingSpawns[i];
+			if (!req || req.m_Location != location || !req.m_bIsBattleSpawn)
+				continue;
+
+			location.m_iQueuedSpawnUnits = Math.Max(
+				0,
+				location.m_iQueuedSpawnUnits - req.m_iExpectedUnits);
+			if (req.m_BattleWave)
+				req.m_BattleWave.m_iPendingRequests = Math.Max(0, req.m_BattleWave.m_iPendingRequests - 1);
+			m_aPendingSpawns.Remove(i);
+		}
+	}
+
+	//! Executa o spawn de um unico grupo a partir de uma requisicao
+	//! enfileirada. Consome budget, registra metadados e agenda o callback
+	//! WaitForGroupMembers.
+	protected void DoSpawnSingle(notnull SPT_GarrisonSpawnRequest req)
+	{
+		SPT_GarrisonLocation location = req.m_Location;
+		if (!location)
+			return;
+
+		location.m_iQueuedSpawnUnits = Math.Max(
+			0,
+			location.m_iQueuedSpawnUnits - req.m_iExpectedUnits);
+		if (!req.m_bIsBattleSpawn)
+		{
+			location.m_iQueuedGarrisonUnits = Math.Max(
+				0,
+				location.m_iQueuedGarrisonUnits - req.m_iExpectedUnits);
+		}
+
+		if (req.m_iGeneration != location.m_iSpawnGeneration)
+		{
+			DebugLog(string.Format("Spawn obsoleto descartado | local=%1 | geracao=%2/%3",
+				location.m_sName, req.m_iGeneration, location.m_iSpawnGeneration));
+			location.RefreshClearedState();
+			return;
+		}
+
+		if (req.m_bIsBattleSpawn && req.m_BattleWave)
+		{
+			req.m_BattleWave.m_iPendingRequests = Math.Max(
+				0,
+				req.m_BattleWave.m_iPendingRequests - 1);
+			if (req.m_BattleWave.m_iPendingRequests == 0)
+			{
+				req.m_BattleWave.m_bDeploymentFinished = true;
+				ScheduleNextBattleWave(location);
+			}
+		}
+
+		Resource groupResource = Resource.Load(req.m_rGroupPrefab);
+		if (!groupResource)
+		{
+			Print(string.Format("[SPT_WorldGarrison] DoSpawnSingle: nao foi possivel carregar recurso %1",
+				req.m_rGroupPrefab), LogLevel.ERROR);
+			return;
+		}
+
+		SCR_AIGroup group;
+		int spawnedUnits;
+		int groupCapacity;
+
+		if (req.m_bIsFromCache && req.m_aAliveMembers)
+		{
+			group = SpawnGroupWithMembers(groupResource, req.m_vSpawnPosition, req.m_aAliveMembers, spawnedUnits);
+			groupCapacity = spawnedUnits;
+		}
+		else
+		{
+			int maxUnits = req.m_iMaxDeployableUnits;
+			if (req.m_bIsBattleSpawn && req.m_BattleWave)
+			{
+				int waveRemaining = Math.Max(
+					0,
+					req.m_BattleWave.m_iUnitBudget - req.m_BattleWave.m_iDeployedUnits);
+				maxUnits = Math.Min(maxUnits, waveRemaining);
+			}
+			if (!location.HasUnlimitedBudget())
+				maxUnits = Math.Min(maxUnits, location.m_iBudgetRemaining);
+			group = SpawnGroup(groupResource, req.m_vSpawnPosition, spawnedUnits, groupCapacity, maxUnits);
+		}
+
+		if (!group)
+		{
+			Print(string.Format("[SPT_WorldGarrison] DoSpawnSingle: falha ao spawnar grupo | prefab=%1 | posicao=%2",
+				req.m_rGroupPrefab, req.m_vSpawnPosition), LogLevel.ERROR);
+			return;
+		}
+
+		if (!req.m_bIsFromCache && !req.m_bIsBattleSpawn)
+			location.m_iTargetManpower = location.m_iTargetManpower + groupCapacity;
+
+		if (spawnedUnits < 1)
+		{
+			if (groupCapacity < 1)
+			{
+				Print(string.Format("[SPT_WorldGarrison] DoSpawnSingle: grupo sem slots de unidade | prefab=%1",
+					req.m_rGroupPrefab), LogLevel.ERROR);
 			}
 			else
 			{
-				continue;
+				DebugLog(string.Format("DoSpawnSingle: grupo nao mobilizado (sem budget) | prefab=%1 | capacidade=%2",
+					req.m_rGroupPrefab, groupCapacity));
 			}
 
-			Resource groupResource = Resource.Load(groupPrefab);
-			if (!groupResource)
+			if (!DeleteGroup(group))
 			{
-				Print(string.Format("[SPT_WorldGarrison] Nao foi possivel carregar grupo de reforco: %1",
-					groupPrefab), LogLevel.ERROR);
-				continue;
+				GetGame().GetCallqueue().CallLater(
+					RetryDeleteOrphanGroup,
+					250, false, group, 20);
 			}
-
-			int deploymentLimit = location.GetDeploymentLimit(remainingDeficit);
-			int spawnedUnits;
-			int groupCapacity;
-			SCR_AIGroup group = SpawnGroup(
-				groupResource,
-				spawnCenter,
-				spawnedUnits,
-				groupCapacity,
-				deploymentLimit);
-			if (!group)
-				continue;
-
-			if (spawnedUnits < 1)
-			{
-				if (!DeleteGroup(group))
-				{
-					GetGame().GetCallqueue().CallLater(
-						RetryDeleteOrphanGroup,
-						250,
-						false,
-						group,
-						20
-					);
-				}
-				continue;
-			}
-
-			location.ConsumeBudget(spawnedUnits);
-			location.m_aGroupIds.Insert(group.GetID());
-
-			SPT_GroupSpawnRecord record = new SPT_GroupSpawnRecord();
-			record.m_rGroupPrefab = groupPrefab;
-			record.m_vFallbackPosition = spawnCenter;
-			record.m_bIsCQB = !patrolGroup;
-			location.m_aGroupRecords.Insert(record);
-
-			location.m_iPendingGroups++;
-			location.m_iDesiredUnits = location.m_iDesiredUnits + spawnedUnits;
-			deployedUnits = deployedUnits + spawnedUnits;
-			remainingDeficit = remainingDeficit - spawnedUnits;
-			reinforcementGroups++;
-
-			DebugLog(string.Format("Grupo de reforco mobilizado | local=%1 | id=%2 | membros=%3/%4 | deficitRestante=%5 | budgetRestante=%6",
-				location.m_sName,
-				group.GetID(),
-				spawnedUnits,
-				groupCapacity,
-				remainingDeficit,
-				location.m_iBudgetRemaining));
-
-			GetGame().GetCallqueue().CallLater(
-				WaitForGroupMembers,
-				250,
-				false,
-				location,
-				group,
-				spawnCenter,
-				location.m_vCenter,
-				patrolGroup,
-				spawnedUnits,
-				20
-			);
+			return;
 		}
 
-		return reinforcementGroups;
+		// Cache restore nao consome budget, apenas spawns frescos
+		if (!req.m_bIsFromCache)
+			location.ConsumeBudget(spawnedUnits);
+		if (req.m_bIsBattleSpawn && req.m_BattleWave)
+			req.m_BattleWave.m_iDeployedUnits += spawnedUnits;
+
+		location.m_aGroupIds.Insert(group.GetID());
+
+		// Rastreia metadados do grupo para futuro stream-out caching
+		SPT_GroupSpawnRecord record = new SPT_GroupSpawnRecord();
+		record.m_rGroupPrefab = req.m_rGroupPrefab;
+		record.m_vFallbackPosition = req.m_vSpawnPosition;
+		record.m_bIsCQB = req.m_bIsCQB;
+		record.m_bIsBattleGroup = req.m_bIsBattleSpawn;
+		location.m_aGroupRecords.Insert(record);
+
+		location.m_iPendingGroups++;
+		location.m_iDesiredUnits += spawnedUnits;
+
+		DebugLog(string.Format("DoSpawnSingle concluido | local=%1 | prefab=%2 | membros=%3/%4 | isCQB=%5 | isCache=%6 | budgetRestante=%7",
+			location.m_sName, req.m_rGroupPrefab, spawnedUnits, groupCapacity, req.m_bIsCQB, req.m_bIsFromCache, location.m_iBudgetRemaining));
+
+		// Garante que o loop de HoldPoll do SPT_GarrisonManager esta ativo
+		// antes de agendar o setup de patrulha/CQB. No modo assincrono, o
+		// timing entre spawns pode deixar o CallLater do HoldPoll cancelado
+		// com a flag m_bHoldPollRunning ainda true, impedindo waypoints.
+		SPT_GarrisonManager.Get().ForceRestartHoldPoll();
+
+		GetGame().GetCallqueue().CallLater(
+			WaitForGroupMembers,
+			250, false,
+			location, group, req.m_vSpawnPosition, req.m_vCityCenter,
+			!req.m_bIsCQB,
+			spawnedUnits,
+			20);
 	}
 
 	protected SCR_AIGroup SpawnGroup(
@@ -1372,6 +2189,11 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			Print(string.Format("[SPT_WorldGarrison] Grupo permaneceu parcial apos 5 segundos | grupo=%1 | agentes=%2/%3",
 				group, agentCount, expectedMembers), LogLevel.WARNING);
 
+		// Seguranca: garante que o HoldPoll esta rodando antes do setup
+		// de patrulha/CQB. No spawn assincrono, atrasos entre grupos
+		// podem cancelar o CallLater do HoldPoll com a flag ainda true.
+		SPT_GarrisonManager.Get().ForceRestartHoldPoll();
+
 		if (patrolGroup)
 		{
 			DebugLog(string.Format("Enviando grupo para patrulha | grupo=%1 | agentes=%2 | centroCidade=%3 | raio=%4",
@@ -1395,6 +2217,8 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 
 	protected void DespawnLocation(notnull SPT_GarrisonLocation location)
 	{
+		CancelPendingSpawns(location);
+
 		if (m_bEnableCaching)
 		{
 			// =============================================================
@@ -1447,6 +2271,8 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 						record.m_rGroupPrefab,
 						record.m_vFallbackPosition,
 						record.m_bIsCQB);
+					cached.m_bIsBattleGroup = record.m_bIsBattleGroup;
+					cached.m_rVehiclePrefab = record.m_rVehiclePrefab;
 					DebugLog(string.Format("Estado capturado para cache | grupo=%1 | vivos=%2 | centroSobreviventes=%3 | isCQB=%4",
 						group, aliveCount, cached.m_vPosition, record.m_bIsCQB));
 
@@ -1479,6 +2305,14 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 						retainedCount++;
 				}
 			}
+
+			foreach (EntityID vehicleId : location.m_Battle.m_aVehicleIds)
+			{
+				IEntity vehicle = GetGame().GetWorld().FindEntityByID(vehicleId);
+				if (vehicle)
+					SCR_EntityHelper.DeleteEntityAndChildren(vehicle);
+			}
+			location.m_Battle.m_aVehicleIds.Clear();
 
 			// Dados cacheados sao estado de stream-out, nao uma entidade
 			// ativa no mundo. Mantem ativo apenas enquanto um grupo nao

@@ -15,6 +15,8 @@ class SPT_StreamableGarrisonGroup : Managed
 
 	//! If true the group uses CQB interior posts; if false it patrols outdoors.
 	bool m_bIsCQB;
+	bool m_bIsBattleGroup;
+	ResourceName m_rVehiclePrefab;
 
 	//-----------------------------------------------------------------------
 	// LIFECYCLE
