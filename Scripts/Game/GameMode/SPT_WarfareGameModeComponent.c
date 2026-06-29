@@ -60,6 +60,12 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 	[Attribute("1", desc: "Habilitar notificacoes HUD de transicoes de estado no cliente.")]
 	protected bool m_bEnableHUD;
 
+	[Attribute("1", desc: "Habilitar icones coloridos no mapa.")]
+	protected bool m_bEnableMapMarkers;
+
+	[Attribute("$SPTGAME:UI/Layouts/Map/WarfareMapIcons.layout", UIWidgets.ResourceNamePicker, desc: "Layout do CanvasWidget para icones no mapa.", params: "layout")]
+	protected ResourceName m_sMapCanvasLayout;
+
 	//-----------------------------------------------------------------------
 	// MEMBROS (SERVIDOR)
 	//-----------------------------------------------------------------------
@@ -109,8 +115,27 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 	//! Nomes de exibicao dos pontos no cliente.
 	protected ref map<string, string> m_mClientPointNames;
 
+	//! Posicoes dos pontos no cliente (recebidas via RpcDo_RegisterPoint).
+	protected ref map<string, vector> m_mClientPointPositions;
+
+	//! Ordem estavel dos IDs no cliente.
+	protected ref array<string> m_aClientPointOrder;
+
 	//! Flag para evitar notificacao de vitoria duplicada.
 	protected bool m_bClientVictoryNotified;
+
+	//-----------------------------------------------------------------------
+	// MEMBROS (CLIENTE - icones no mapa)
+	//-----------------------------------------------------------------------
+
+	//! Widget raiz do canvas de icones no mapa.
+	protected Widget m_wMapCanvasRoot;
+
+	//! CanvasWidget para desenho dos icones.
+	protected CanvasWidget m_cMapCanvas;
+
+	//! Verdadeiro enquanto o mapa esta aberto.
+	protected bool m_bMapOpen;
 
 	//-----------------------------------------------------------------------
 	// SINGLETON
@@ -132,6 +157,18 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 		if (SCR_Global.IsEditMode())
 			return;
 
+		// Inicializa estruturas do cliente (usadas nos handlers RPC)
+		m_mClientPointStates = new map<string, SPT_EWarfarePointState>();
+		m_mClientPreviousStates = new map<string, SPT_EWarfarePointState>();
+		m_mClientPointNames = new map<string, string>();
+		m_mClientPointPositions = new map<string, vector>();
+		m_aClientPointOrder = new array<string>();
+
+		// Inscreve nos eventos do mapa (cliente)
+		SCR_MapEntity.GetOnMapOpen().Insert(OnClientMapOpen);
+		SCR_MapEntity.GetOnMapClose().Insert(OnClientMapClose);
+
+		// Servidor: inicializacao normal
 		if (!Replication.IsServer())
 			return;
 
@@ -145,13 +182,17 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 		m_aFrontlineIds = new array<string>();
 		m_aPendingStateUpdates = new array<ref SPT_WarfarePointStateSnapshot>();
 
-		// Inicializa estruturas do cliente (usadas nos handlers RPC)
-		m_mClientPointStates = new map<string, SPT_EWarfarePointState>();
-		m_mClientPreviousStates = new map<string, SPT_EWarfarePointState>();
-		m_mClientPointNames = new map<string, string>();
-
 		Print("[SPT_Warfare] Inicializando componente de GameMode...");
 		GetGame().GetCallqueue().CallLater(InitializeWarfare, 2000, false);
+	}
+
+	//! Frame update - desenha icones no mapa quando aberto.
+	override void EOnFrame(IEntity owner, float timeSlice)
+	{
+		super.EOnFrame(owner, timeSlice);
+
+		if (m_bMapOpen && m_bEnableMapMarkers)
+			DrawMapIcons();
 	}
 
 	//-----------------------------------------------------------------------
@@ -1163,6 +1204,26 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 		return pointId;
 	}
 
+	//! Retorna a posicao de um ponto no cliente (recebida via RpcDo_RegisterPoint).
+	bool GetClientPointPosition(string pointId, out vector outPos)
+	{
+		outPos = vector.Zero;
+		if (m_mClientPointPositions.Contains(pointId))
+		{
+			outPos = m_mClientPointPositions.Get(pointId);
+			return true;
+		}
+		return false;
+	}
+
+	//! Preenche um array com todos os IDs de ponto conhecidos no cliente.
+	void GetClientPointIds(notnull array<string> outIds)
+	{
+		outIds.Clear();
+		foreach (string pointId : m_aClientPointOrder)
+			outIds.Insert(pointId);
+	}
+
 	//-----------------------------------------------------------------------
 	// REPLICACAO DE ESTADO
 	//-----------------------------------------------------------------------
@@ -1227,6 +1288,9 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 	protected void RpcDo_RegisterPoint(string pointId, string name, int typeRaw, float posX, float posZ, int isHQ)
 	{
 		m_mClientPointNames.Set(pointId, name);
+		m_mClientPointPositions.Set(pointId, Vector(posX, 0, posZ));
+		if (m_aClientPointOrder.Find(pointId) < 0)
+			m_aClientPointOrder.Insert(pointId);
 	}
 
 	//! RPC simples com tipos basicos: string, int, int (bool como 0/1).
@@ -1307,6 +1371,106 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 			if (hintMgr)
 				hintMgr.ShowCustom(message);
 		}
+	}
+
+	//-----------------------------------------------------------------------
+	// MAPA - ICONES (CLIENTE)
+	//-----------------------------------------------------------------------
+
+	//! Chamado quando o jogador abre o mapa.
+	protected void OnClientMapOpen(MapConfiguration config)
+	{
+		if (!m_bEnableMapMarkers)
+			return;
+
+		// Cria o canvas de desenho
+		m_wMapCanvasRoot = GetGame().GetWorkspace().CreateWidgets(m_sMapCanvasLayout);
+		if (m_wMapCanvasRoot)
+			m_cMapCanvas = CanvasWidget.Cast(m_wMapCanvasRoot.FindAnyWidget("Canvas"));
+
+		m_bMapOpen = true;
+
+		// Registra update para desenhar a cada frame
+		SetEventMask(GetOwner(), EntityEvent.FRAME);
+	}
+
+	//! Chamado quando o jogador fecha o mapa.
+	protected void OnClientMapClose(MapConfiguration config)
+	{
+		m_bMapOpen = false;
+
+		if (m_wMapCanvasRoot)
+		{
+			m_wMapCanvasRoot.RemoveFromHierarchy();
+			m_wMapCanvasRoot = null;
+		}
+		m_cMapCanvas = null;
+
+		ClearEventMask(GetOwner(), EntityEvent.FRAME);
+	}
+
+	//! Desenha os icones no mapa (chamado no EOnFrame quando mapa aberto).
+	protected void DrawMapIcons()
+	{
+		if (!m_bMapOpen || !m_cMapCanvas)
+			return;
+
+		SCR_MapEntity mapEntity = SCR_MapEntity.GetMapInstance();
+		if (!mapEntity)
+			return;
+
+		ref array<ref CanvasWidgetCommand> allCommands = new array<ref CanvasWidgetCommand>();
+
+		foreach (string pointId : m_aClientPointOrder)
+		{
+			vector pos;
+			if (!GetClientPointPosition(pointId, pos))
+				continue;
+
+			SPT_EWarfarePointState state = GetClientPointState(pointId);
+			int fillColor = GetMapIconColor(state);
+			int borderColor = ARGB(200, 0, 0, 0);
+
+			int screenX, screenY;
+			if (!mapEntity.WorldToScreen(pos[0], pos[2], screenX, screenY, true))
+				continue;
+
+			// Borda (circulo preto maior)
+			PolygonDrawCommand borderCmd = CreateCircleCmd(screenX, screenY, 12, borderColor);
+			allCommands.Insert(borderCmd);
+
+			// Preenchimento colorido
+			PolygonDrawCommand fillCmd = CreateCircleCmd(screenX, screenY, 10, fillColor);
+			allCommands.Insert(fillCmd);
+		}
+
+		if (!allCommands.IsEmpty())
+			m_cMapCanvas.SetDrawCommands(allCommands);
+	}
+
+	protected PolygonDrawCommand CreateCircleCmd(int cx, int cy, int radius, int color)
+	{
+		PolygonDrawCommand cmd = new PolygonDrawCommand();
+		cmd.m_iColor = color;
+		cmd.m_Vertices = new array<float>();
+		for (int i = 0; i < 24; i++)
+		{
+			float a = i * (2.0 * Math.PI / 24.0);
+			cmd.m_Vertices.Insert(cx + Math.Cos(a) * radius);
+			cmd.m_Vertices.Insert(cy + Math.Sin(a) * radius);
+		}
+		return cmd;
+	}
+
+	static int GetMapIconColor(SPT_EWarfarePointState state)
+	{
+		if (state == SPT_EWarfarePointState.LOCKED)            return ARGB(255, 150, 0, 0);
+		if (state == SPT_EWarfarePointState.FRONTLINE)         return ARGB(255, 255, 50, 50);
+		if (state == SPT_EWarfarePointState.UNDER_ATTACK)      return ARGB(255, 255, 140, 0);
+		if (state == SPT_EWarfarePointState.CLEARED_WAITING)   return ARGB(255, 255, 255, 0);
+		if (state == SPT_EWarfarePointState.CAPTURED_DEFENDING) return ARGB(255, 70, 130, 255);
+		if (state == SPT_EWarfarePointState.CAPTURED)           return ARGB(255, 0, 150, 255);
+		return ARGB(255, 128, 128, 128);
 	}
 
 	//-----------------------------------------------------------------------
