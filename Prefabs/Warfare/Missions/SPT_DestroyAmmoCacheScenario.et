@@ -1,0 +1,91 @@
+GenericEntity {
+ ID "69BC100100000001"
+ components {
+  SPT_WarfareMissionScenarioComponent "{69BC100100000002}" {
+  }
+  RplComponent "{69BC100100000003}" {
+  }
+  SPT_WarfareMissionObjectiveComponent "{69BC100100000004}" {
+  }
+  SPT_AmmoCacheDestructionComponent "{69BC100100000025}" {
+   m_iDestructionDelaySeconds 10
+   m_rExplosionPrefab "{7E091BB73AC18ED0}Prefabs/Weapons/Warheads/Explosions/Explosion_AmmoRack_Medium.et"
+   m_rExplosionSoundPrefab "{490CCFCB2ACC99CF}Prefabs/Weapons/Warheads/Explosions/Explosion_AmmoRack_Medium_Sound.et"
+  }
+  ActionsManagerComponent "{69BC100100000011}" {
+   ActionContexts {
+    UserActionContext "{69BC100110000101}" {
+     ContextName "default"
+     Position PointInfo "{69BC100110000102}" {
+     }
+     Radius 2.5
+    }
+   }
+   additionalActions {
+    SPT_DestroyAmmoCacheAction "{69BC100110000103}" {
+     ParentContextList {
+      "default"
+     }
+     UIInfo UIInfo "{69BC100110000104}" {
+      Name "Destruir Ammo Cache"
+     }
+     VisibilityRange 4
+     "Sort Priority" 100
+    }
+   }
+  }
+ }
+ {
+  GenericEntity AmmoBox_1 : "{EC0546F8F656FBEF}Prefabs/Props/Military/AmmoBoxes/EquipmentBoxStack/USSR/EquipmentBoxStack_USSR_01_V3.et" {
+   components {
+    SPT_WarfareMissionPlacementComponent "{69BC100100000005}" {
+     m_fVerticalOffset 0.02
+     m_bAlignToSlope 1
+    }
+   }
+   coords -1.8 0 1.8
+   angles 0 25 0
+  }
+  GenericEntity AmmoBox_2 : "{EC0546F8F656FBEF}Prefabs/Props/Military/AmmoBoxes/EquipmentBoxStack/USSR/EquipmentBoxStack_USSR_01_V3.et" {
+   components {
+    SPT_WarfareMissionPlacementComponent "{69BC100100000006}" {
+     m_fVerticalOffset 0.02
+     m_bAlignToSlope 1
+    }
+   }
+   coords 1.8 0 -1.8
+   angles 0 -20 0
+  }
+  GenericEntity AmmoBox_3 : "{EC0546F8F656FBEF}Prefabs/Props/Military/AmmoBoxes/EquipmentBoxStack/USSR/EquipmentBoxStack_USSR_01_V3.et" {
+   components {
+    SPT_WarfareMissionPlacementComponent "{69BC100100000008}" {
+     m_fVerticalOffset 0.02
+     m_bAlignToSlope 1
+    }
+   }
+   coords 1.8 0 1.8
+   angles 0 50 0
+  }
+  GenericEntity AmmoBox_4 : "{EC0546F8F656FBEF}Prefabs/Props/Military/AmmoBoxes/EquipmentBoxStack/USSR/EquipmentBoxStack_USSR_01_V3.et" {
+   components {
+    SPT_WarfareMissionPlacementComponent "{69BC100100000009}" {
+     m_fVerticalOffset 0.02
+     m_bAlignToSlope 1
+    }
+   }
+   coords -1.8 0 -1.8
+   angles 0 -60 0
+  }
+  GenericEntity Environment : "{F1C5F8E2EF1105F9}Prefabs/Compositions/Misc/SubCompositions/Tent_HQ_Camo_Cluttered_US_01.et" {
+   components {
+    SPT_WarfareMissionPlacementComponent "{69BC100100000026}" {
+     m_fVerticalOffset 0
+     m_bAlignToSlope 0
+    }
+   }
+   coords 7 0 0
+   angles 0 90 0
+  }
+ }
+ Flags 1027
+}
