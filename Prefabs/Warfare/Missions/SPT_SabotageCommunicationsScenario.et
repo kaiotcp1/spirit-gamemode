@@ -51,16 +51,6 @@ GenericEntity {
    }
    coords 3 0 0
   }
-  GenericEntity Environment : "{F1C5F8E2EF1105F9}Prefabs/Compositions/Misc/SubCompositions/Tent_HQ_Camo_Cluttered_US_01.et" {
-   components {
-    SPT_WarfareMissionPlacementComponent "{69D1000100000012}" {
-    }
-    SPT_WarfareMissionExplosionCleanupComponent "{69D1000100000014}" {
-    }
-   }
-   coords 9 0 2
-   angles 0 90 0
-  }
  }
  Flags 1027
 }

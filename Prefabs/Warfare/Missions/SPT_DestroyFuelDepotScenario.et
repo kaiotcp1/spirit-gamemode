@@ -9,6 +9,7 @@ GenericEntity {
   }
   SPT_WarfareMissionInteractionComponent "{69D1000200000005}" {
    m_iDurationSeconds 15
+   m_fMaxInteractionDistance 9
   }
  }
  {
@@ -18,28 +19,6 @@ GenericEntity {
     }
     SPT_WarfareMissionRuinTargetComponent "{69D1000200000011}" {
      m_rRuinPrefab "{6893FA045768E152}Prefabs/Structures/Industrial/Containers/FuelTanks/FuelTank_01/FuelTank_01_orange_Ruin.et"
-    }
-    ActionsManagerComponent "{69D1000200000006}" {
-     ActionContexts {
-      UserActionContext "{69D1000200000007}" {
-       ContextName "default"
-       Position PointInfo "{69D1000200000008}" {
-       }
-       Radius 4
-      }
-     }
-     additionalActions {
-      SPT_InteractWarfareMissionAction "{69D1000200000009}" {
-       ParentContextList {
-        "default"
-       }
-       UIInfo UIInfo "{69D100020000000A}" {
-        Name "Plantar explosivos"
-       }
-       VisibilityRange 5
-       "Sort Priority" 100
-      }
-     }
     }
    }
    coords -3 0 0
@@ -53,16 +32,6 @@ GenericEntity {
     }
    }
    coords 3 0 0
-  }
-  GenericEntity Environment : "{F1C5F8E2EF1105F9}Prefabs/Compositions/Misc/SubCompositions/Tent_HQ_Camo_Cluttered_US_01.et" {
-   components {
-    SPT_WarfareMissionPlacementComponent "{69D1000200000014}" {
-    }
-    SPT_WarfareMissionExplosionCleanupComponent "{69D1000200000015}" {
-    }
-   }
-   coords 10 0 3
-   angles 0 90 0
   }
  }
  Flags 1027
