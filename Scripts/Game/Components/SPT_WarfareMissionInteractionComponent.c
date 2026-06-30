@@ -13,7 +13,6 @@ class SPT_WarfareMissionInteractionComponentClass : ScriptComponentClass
 
 class SPT_WarfareMissionInteractionComponent : ScriptComponent
 {
-	protected const float MAX_INTERACTION_DISTANCE = 4.0;
 	protected const int TIMER_TICK_MS = 1000;
 	protected const int RUIN_REPLACEMENT_DELAY_MS = 500;
 	protected const float EXPLOSION_CLEANUP_RADIUS = 30.0;
@@ -23,6 +22,9 @@ class SPT_WarfareMissionInteractionComponent : ScriptComponent
 
 	[Attribute("20", desc: "Raio no qual um jogador deve permanecer durante a defesa.")]
 	protected float m_fDefenseRadius;
+
+	[Attribute("4", desc: "Distancia maxima entre o jogador e a raiz do cenario para validar a interacao.")]
+	protected float m_fMaxInteractionDistance;
 
 	[Attribute("{B4569479BFB3DBA2}Prefabs/Weapons/Warheads/Explosions/Cinematic_Explosion.et",
 		UIWidgets.ResourceNamePicker, desc: "Primeiro efeito da sequencia de explosao.", params: "et")]
@@ -84,7 +86,7 @@ class SPT_WarfareMissionInteractionComponent : ScriptComponent
 		IEntity owner = GetOwner();
 		if (!owner || owner.IsDeleted())
 			return false;
-		if (vector.Distance(player.GetOrigin(), owner.GetOrigin()) > MAX_INTERACTION_DISTANCE)
+		if (vector.Distance(player.GetOrigin(), owner.GetOrigin()) > Math.Max(m_fMaxInteractionDistance, 1.0))
 			return false;
 
 		DamageManagerComponent playerDamage = DamageManagerComponent.Cast(

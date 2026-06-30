@@ -1,0 +1,34 @@
+GenericEntity {
+ ID "69D1A00000000001"
+ components {
+  SPT_WarfareMissionExplosionCleanupComponent "{69D1A00000000002}" {
+  }
+  SPT_WarfareMissionActionPointComponent "{69D1A00000000003}" {
+  }
+  ActionsManagerComponent "{69D1A00000000004}" {
+   ActionContexts {
+    UserActionContext "{69D1A00000000005}" {
+     ContextName "default"
+     Position PointInfo "{69D1A00000000006}" {
+     }
+     Radius 3
+    }
+   }
+   additionalActions {
+    SPT_InteractWarfareMissionAction "{69D1A00000000007}" {
+     ParentContextList {
+      "default"
+     }
+     UIInfo UIInfo "{69D1A00000000008}" {
+      Name "Plantar explosivos"
+     }
+     VisibilityRange 5
+     "Sort Priority" 100
+    }
+   }
+  }
+  RplComponent "{69D1A00000000009}" {
+  }
+ }
+ Flags 1027
+}

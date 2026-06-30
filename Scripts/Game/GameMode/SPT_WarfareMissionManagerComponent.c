@@ -8,6 +8,7 @@ class SPT_WarfareMissionRuntime : Managed
 	bool m_bActivationFailed;
 	EntityID m_ScenarioEntityId;
 	EntityID m_ObjectiveEntityId;
+	EntityID m_ActionProxyEntityId;
 }
 
 [ComponentEditorProps(category: "SPT/GameMode", description: "Gerencia missoes independentes por WarfarePoint.")]
@@ -20,6 +21,8 @@ class SPT_WarfareMissionManagerComponent : ScriptComponent
 	protected const int MONITOR_INTERVAL_MS = 1000;
 	protected const int TERRAIN_CANDIDATE_COUNT = 24;
 	protected const float TERRAIN_SAMPLE_DISTANCE = 5.0;
+	protected const ResourceName FUEL_ACTION_PROXY_PREFAB =
+		"{69D1A00000000000}Prefabs/Warfare/Missions/SPT_WarfareMissionActionProxy.et";
 
 	protected static SPT_WarfareMissionManagerComponent s_Instance;
 
@@ -315,14 +318,50 @@ class SPT_WarfareMissionManagerComponent : ScriptComponent
 		if (interaction)
 			interaction.Initialize(runtime.m_sPointId, runtime.m_Config.m_eType);
 
+		IEntity actionProxy;
+		if (runtime.m_Config.m_eType == SPT_EWarfareMissionType.DESTROY_FUEL_DEPOT)
+		{
+			actionProxy = SpawnFuelActionProxy(scenarioEntity);
+			if (!actionProxy)
+			{
+				Print(string.Format("[SPT_WarfareMission] Falha ao criar proxy da action de combustivel | pointId=%1",
+					runtime.m_sPointId), LogLevel.ERROR);
+				SCR_EntityHelper.DeleteEntityAndChildren(scenarioEntity);
+				runtime.m_bActivationFailed = true;
+				return;
+			}
+		}
+
 		objective.Initialize(runtime.m_sPointId);
 		runtime.m_ScenarioEntityId = scenarioEntity.GetID();
 		runtime.m_ObjectiveEntityId = objective.GetOwner().GetID();
+		if (actionProxy)
+			runtime.m_ActionProxyEntityId = actionProxy.GetID();
 		runtime.m_eState = SPT_EWarfareMissionState.ACTIVE;
 		BroadcastMissionState(runtime, true);
 
 		Print(string.Format("[SPT_WarfareMission] Missao ativada | pointId=%1 | posicao=%2",
 			runtime.m_sPointId, position));
+	}
+
+	protected IEntity SpawnFuelActionProxy(notnull IEntity scenarioEntity)
+	{
+		Resource resource = Resource.Load(FUEL_ACTION_PROXY_PREFAB);
+		BaseWorld world = GetGame().GetWorld();
+		if (!resource || !world)
+			return null;
+
+		vector position = scenarioEntity.GetOrigin() + Vector(-5.0, 0, 0);
+		position[1] = world.GetSurfaceY(position[0], position[2]) + 0.05;
+
+		EntitySpawnParams params();
+		params.TransformMode = ETransformMode.WORLD;
+		params.Transform[3] = position;
+		IEntity proxy = GetGame().SpawnEntityPrefab(resource, world, params);
+		if (proxy)
+			Print(string.Format("[SPT_WarfareMission] Proxy da action de combustivel criado | posicao=%1",
+				position));
+		return proxy;
 	}
 
 	protected bool FindTerrainPosition(SPT_WarfareMissionRuntime runtime, out vector outPosition)
@@ -567,6 +606,10 @@ class SPT_WarfareMissionManagerComponent : ScriptComponent
 			IEntity scenario = world.FindEntityByID(runtime.m_ScenarioEntityId);
 			if (scenario && !scenario.IsDeleted())
 				SCR_EntityHelper.DeleteEntityAndChildren(scenario);
+
+			IEntity actionProxy = world.FindEntityByID(runtime.m_ActionProxyEntityId);
+			if (actionProxy && !actionProxy.IsDeleted())
+				SCR_EntityHelper.DeleteEntityAndChildren(actionProxy);
 		}
 	}
 }
