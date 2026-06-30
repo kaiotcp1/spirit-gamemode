@@ -614,7 +614,8 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 				}
 				if (data.m_MissionConfig.m_rScenarioPrefab.IsEmpty())
 				{
-					Print(string.Format("[SPT_Warfare] ERRO: Missao habilitada sem prefab em %1.", pointId), LogLevel.ERROR);
+					Print(string.Format("[SPT_Warfare] ERRO: Tipo de missao sem prefab registrado em %1 | tipo=%2.",
+						pointId, data.m_MissionConfig.m_eType), LogLevel.ERROR);
 					valid = false;
 				}
 			}

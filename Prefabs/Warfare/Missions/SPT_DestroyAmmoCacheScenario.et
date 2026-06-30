@@ -9,7 +9,7 @@ GenericEntity {
   }
   SPT_AmmoCacheDestructionComponent "{69BC100100000025}" {
    m_iDestructionDelaySeconds 10
-   m_rExplosionPrefab "{7E091BB73AC18ED0}Prefabs/Weapons/Warheads/Explosions/Explosion_AmmoRack_Medium.et"
+   m_rExplosionPrefab "{B4569479BFB3DBA2}Prefabs/Weapons/Warheads/Explosions/Cinematic_Explosion.et"
    m_rExplosionSoundPrefab "{490CCFCB2ACC99CF}Prefabs/Weapons/Warheads/Explosions/Explosion_AmmoRack_Medium_Sound.et"
   }
   ActionsManagerComponent "{69BC100100000011}" {

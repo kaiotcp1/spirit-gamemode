@@ -1,0 +1,13 @@
+SCR_ChimeraCharacter : "{2C99021D2C4F42C7}Prefabs/Characters/Tutorial/Narrative/Soldier_Friend.et" {
+ ID "69D1000500000001"
+ components {
+  SPT_WarfareMissionScenarioComponent "{69D1000500000002}" {
+  }
+  SPT_WarfareMissionObjectiveComponent "{69D1000500000003}" {
+  }
+  SPT_WarfareMissionPlacementComponent "{69D1000500000004}" {
+   m_fVerticalOffset 0.05
+  }
+ }
+ Flags 1027
+}

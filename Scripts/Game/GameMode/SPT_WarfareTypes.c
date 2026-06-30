@@ -36,7 +36,17 @@ enum SPT_EWarfareMissionType
 	//! Destruir um cache de municao composto por 4 caixas de equipamento.
 	//! Usa o prefab vanilla EquipmentBoxStack_US_01_V4_covered (4x).
 	//! GUID: {09321D1470C3625E}
-	DESTROY_AMMO_CACHE
+	DESTROY_AMMO_CACHE,
+	//! Sabotar uma instalacao de radio/antena.
+	SABOTAGE_COMMUNICATIONS,
+	//! Destruir uma instalacao de armazenamento de combustivel.
+	DESTROY_FUEL_DEPOT,
+	//! Coletar documentos ou inteligencia inimiga.
+	STEAL_INTELLIGENCE,
+	//! Eliminar um oficial inimigo representado por um objetivo com DamageManager.
+	ELIMINATE_OFFICER,
+	//! Ativar e defender um transmissor durante um intervalo configuravel.
+	DEFEND_TRANSMITTER
 }
 
 //! Estado independente da captura territorial.
@@ -45,6 +55,31 @@ enum SPT_EWarfareMissionState
 	INACTIVE,
 	ACTIVE,
 	COMPLETED
+}
+
+//! Mapeamento central entre o tipo selecionado no editor e sua composicao.
+class SPT_WarfareMissionPrefabRegistry
+{
+	static ResourceName GetScenarioPrefab(SPT_EWarfareMissionType missionType)
+	{
+		switch (missionType)
+		{
+			case SPT_EWarfareMissionType.DESTROY_AMMO_CACHE:
+				return "{69BC100100000000}Prefabs/Warfare/Missions/SPT_DestroyAmmoCacheScenario.et";
+			case SPT_EWarfareMissionType.SABOTAGE_COMMUNICATIONS:
+				return "{69D1000100000000}Prefabs/Warfare/Missions/SPT_SabotageCommunicationsScenario.et";
+			case SPT_EWarfareMissionType.DESTROY_FUEL_DEPOT:
+				return "{69D1000200000000}Prefabs/Warfare/Missions/SPT_DestroyFuelDepotScenario.et";
+			case SPT_EWarfareMissionType.STEAL_INTELLIGENCE:
+				return "{69D1000300000000}Prefabs/Warfare/Missions/SPT_StealIntelligenceScenario.et";
+			case SPT_EWarfareMissionType.ELIMINATE_OFFICER:
+				return "{69D1000500000000}Prefabs/Warfare/Missions/SPT_EliminateOfficerScenario.et";
+			case SPT_EWarfareMissionType.DEFEND_TRANSMITTER:
+				return "{69D1000400000000}Prefabs/Warfare/Missions/SPT_DefendTransmitterScenario.et";
+		}
+
+		return "";
+	}
 }
 
 //! Configuracao copiada do componente colocado no mapa.

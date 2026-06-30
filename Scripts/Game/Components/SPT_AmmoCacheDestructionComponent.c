@@ -31,6 +31,14 @@ class SPT_AmmoCacheDestructionComponent : ScriptComponent
 		UIWidgets.ResourceNamePicker, desc: "Explosao criada pelo servidor ao terminar o timer.", params: "et")]
 	protected ResourceName m_rExplosionPrefab;
 
+	[Attribute("{BCE4E0823FCFBCB7}Prefabs/Weapons/Warheads/Explosions/Explosion_AmmoRack_Large.et",
+		UIWidgets.ResourceNamePicker, desc: "Segundo efeito da sequencia de explosao.", params: "et")]
+	protected ResourceName m_rSecondaryExplosionPrefab;
+
+	[Attribute("{72BEEF40AF179763}Prefabs/Weapons/Warheads/Explosions/Explosion_Tnt_Large.et",
+		UIWidgets.ResourceNamePicker, desc: "Terceiro efeito da sequencia de explosao.", params: "et")]
+	protected ResourceName m_rTertiaryExplosionPrefab;
+
 	[Attribute("{490CCFCB2ACC99CF}Prefabs/Weapons/Warheads/Explosions/Explosion_AmmoRack_Medium_Sound.et",
 		UIWidgets.ResourceNamePicker, desc: "Som criado localmente em cada cliente ao detonar.", params: "et")]
 	protected ResourceName m_rExplosionSoundPrefab;
@@ -54,6 +62,7 @@ class SPT_AmmoCacheDestructionComponent : ScriptComponent
 	void ~SPT_AmmoCacheDestructionComponent()
 	{
 		GetGame().GetCallqueue().Remove(TimerTick);
+		GetGame().GetCallqueue().Remove(SpawnExplosionPrefab);
 		GetGame().GetCallqueue().Remove(RemoveDecorationsAfterExplosion);
 		GetGame().GetCallqueue().Remove(DeleteScenario);
 	}
@@ -145,7 +154,14 @@ class SPT_AmmoCacheDestructionComponent : ScriptComponent
 		if (objective)
 			objective.TriggerDestruction();
 
-		SpawnExplosion(owner.GetOrigin());
+		vector explosionPosition = owner.GetOrigin();
+		SpawnExplosion(explosionPosition);
+		GetGame().GetCallqueue().CallLater(
+			SpawnExplosionPrefab, 150, false, m_rSecondaryExplosionPrefab,
+			explosionPosition + Vector(1.5, 0.2, -1.0));
+		GetGame().GetCallqueue().CallLater(
+			SpawnExplosionPrefab, 350, false, m_rTertiaryExplosionPrefab,
+			explosionPosition + Vector(-1.0, 0.1, 1.5));
 		PlayExplosionSound(owner.GetOrigin());
 		Replication.BumpMe();
 		OnDestructionStateChanged();
@@ -181,6 +197,24 @@ class SPT_AmmoCacheDestructionComponent : ScriptComponent
 		IEntity explosion = GetGame().SpawnEntityPrefab(resource, GetGame().GetWorld(), params);
 		if (!explosion)
 			Print(string.Format("[SPT_AmmoCache] Falha ao criar explosao | prefab=%1", explosionPrefab), LogLevel.ERROR);
+	}
+
+	protected void SpawnExplosionPrefab(ResourceName explosionPrefab, vector position)
+	{
+		if (!Replication.IsServer() || explosionPrefab.IsEmpty())
+			return;
+
+		Resource resource = Resource.Load(explosionPrefab);
+		if (!resource)
+		{
+			Print(string.Format("[SPT_AmmoCache] Prefab de explosao invalido | prefab=%1", explosionPrefab), LogLevel.ERROR);
+			return;
+		}
+
+		EntitySpawnParams params();
+		params.TransformMode = ETransformMode.WORLD;
+		params.Transform[3] = position;
+		GetGame().SpawnEntityPrefab(resource, GetGame().GetWorld(), params);
 	}
 
 	protected void PlayExplosionSound(vector position)

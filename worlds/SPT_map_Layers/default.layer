@@ -32,7 +32,6 @@ $grp GenericEntity : "{B1F6A2439C8D7500}Prefabs/Warfare/SPT_WarfarePoint.et" {
     m_aBattleGroupPrefabs {
      "{B7AB5D3F8A7ADAE4}Prefabs/Groups/BLUFOR/Group_US_PlatoonHQ.et"
     }
-    m_bMissionEnabled 1
     m_eMissionType DESTROY_AMMO_CACHE
     m_fMissionActivationDistance 200
    }
@@ -51,8 +50,7 @@ $grp GenericEntity : "{B1F6A2439C8D7500}Prefabs/Warfare/SPT_WarfarePoint.et" {
     m_fGarrisonPatrolRadius 200
     m_iGarrisonSpawnIntervalMs 2000
     m_fBattleConvoyWeight 0.45
-    m_bMissionEnabled 1
-    m_eMissionType DESTROY_AMMO_CACHE
+    m_eMissionType SABOTAGE_COMMUNICATIONS
     m_fMissionActivationDistance 200
    }
   }
@@ -62,20 +60,106 @@ $grp GenericEntity : "{B1F6A2439C8D7500}Prefabs/Warfare/SPT_WarfarePoint.et" {
   components {
    SPT_WarfarePointComponent "{B1F6A2439C8D7502}" {
     m_sPointId "MILITARY_BASE_2"
-    m_sDisplayName "Area militar 1"
+    m_sDisplayName "Area militar 2"
     m_ePointType MILITARY_BASE
     m_fRadius 100
     m_fGarrisonSpawnDistance 400
     m_fGarrisonDespawnDistance 500
     m_fGarrisonPatrolRadius 200
-    m_bMissionEnabled 1
-    m_eMissionType DESTROY_AMMO_CACHE
+    m_eMissionType ELIMINATE_OFFICER
     m_fMissionActivationDistance 200
     m_fMissionTerrainSearchRadius 20
    }
   }
   coords 1380.214 9.663 1862.45
   angles 3.569 -0.168 -2.689
+ }
+ {
+  components {
+   SPT_WarfarePointComponent "{B1F6A2439C8D7502}" {
+    m_sPointId "MILITARY_BASE_3"
+    m_sDisplayName "TimberRidge Antena de comunicação"
+    m_ePointType MOUNTAIN
+    m_fRadius 100
+    m_fGarrisonSpawnDistance 400
+    m_fGarrisonDespawnDistance 500
+    m_fGarrisonPatrolRadius 200
+    m_aGarrisonCQBGroupPrefabs {
+     ""
+     ""
+     ""
+    }
+    m_aGarrisonPatrolGroupPrefabs {
+     "{DDF3799FA1387848}Prefabs/Groups/BLUFOR/Group_US_RifleSquad.et"
+     "{9624D2B39397E148}Prefabs/Groups/BLUFOR/Group_US_SapperTeam.et"
+     "{F65B7BB712F46FEE}Prefabs/Groups/BLUFOR/Group_US_ReconTeam.et"
+    }
+    m_iBattleWaveUnitsMin 10
+    m_iBattleWaveUnitsMax 12
+    m_fBattleVehicleReinforcementChance 1
+    m_aBattleGroupPrefabs {
+     "{F65B7BB712F46FEE}Prefabs/Groups/BLUFOR/Group_US_ReconTeam.et"
+     "{9624D2B39397E148}Prefabs/Groups/BLUFOR/Group_US_SapperTeam.et"
+     "{DE747BC9217D383C}Prefabs/Groups/BLUFOR/Group_US_Team_GL.et"
+    }
+    m_aBattleVehicles {
+     SPT_BattleVehicleConfig "{B1F6A2439C8D7503}" {
+      m_rVehiclePrefab "{0FBF8F010F81A4E5}Prefabs/Vehicles/Wheeled/LAV25/LAV25.et"
+     }
+    }
+    m_eMissionType SABOTAGE_COMMUNICATIONS
+    m_fMissionActivationDistance 200
+    m_fMissionTerrainSearchRadius 24.7
+   }
+  }
+  coords 2618.849 102.603 2612.922
+  angles 3.21 80.984 3.108
+ }
+ {
+  components {
+   SPT_WarfarePointComponent "{B1F6A2439C8D7502}" {
+    m_sPointId "Cidade Arleville"
+    m_sDisplayName "Cidade de Arleville"
+    m_ePointType CITY
+    m_fRadius 140
+    m_fGarrisonSpawnDistance 400
+    m_fGarrisonDespawnDistance 500
+    m_fGarrisonBuildingSearchRadius 160
+    m_fGarrisonPatrolRadius 200
+    m_aGarrisonCQBGroupPrefabs {
+     "{84E5BBAB25EA23E5}Prefabs/Groups/BLUFOR/Group_US_FireTeam.et"
+     "{F65B7BB712F46FEE}Prefabs/Groups/BLUFOR/Group_US_ReconTeam.et"
+     "{DE747BC9217D383C}Prefabs/Groups/BLUFOR/Group_US_Team_GL.et"
+     "{D807C7047E818488}Prefabs/Groups/BLUFOR/Group_US_SniperTeam.et"
+     "{958039B857396B7B}Prefabs/Groups/BLUFOR/Group_US_MachineGunTeam.et"
+     "{81B6DBF2B88545F5}Prefabs/Groups/BLUFOR/Group_US_Team_Suppress.et"
+     "{AC473DE5F4B24E82}Prefabs/Groups/BLUFOR/GreenBerets/Suppressed/Group_US_GreenBeret_ReconTeam.et"
+    }
+    m_aGarrisonPatrolGroupPrefabs {
+     ""
+     ""
+     ""
+    }
+    m_iBattleWaveUnitsMin 10
+    m_iBattleWaveUnitsMax 12
+    m_fBattleVehicleReinforcementChance 1
+    m_aBattleGroupPrefabs {
+     "{F65B7BB712F46FEE}Prefabs/Groups/BLUFOR/Group_US_ReconTeam.et"
+     "{9624D2B39397E148}Prefabs/Groups/BLUFOR/Group_US_SapperTeam.et"
+     "{DE747BC9217D383C}Prefabs/Groups/BLUFOR/Group_US_Team_GL.et"
+    }
+    m_aBattleVehicles {
+     SPT_BattleVehicleConfig "{B1F6A2439C8D7503}" {
+      m_rVehiclePrefab "{0FBF8F010F81A4E5}Prefabs/Vehicles/Wheeled/LAV25/LAV25.et"
+     }
+    }
+    m_eMissionType ELIMINATE_OFFICER
+    m_fMissionActivationDistance 300
+    m_fMissionTerrainSearchRadius 24.7
+   }
+  }
+  coords 2736.226 77.531 1607.674
+  angles 0 80.984 0
  }
 }
 $grp GenericEntity : "{CCC00D009D4949B0}Prefabs/Weapons/Explosives/Mine_TM62M/Mine_TM62M_base.et" {

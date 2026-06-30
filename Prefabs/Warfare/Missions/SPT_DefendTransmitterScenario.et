@@ -1,0 +1,57 @@
+GenericEntity {
+ ID "69D1000400000001"
+ components {
+  SPT_WarfareMissionScenarioComponent "{69D1000400000002}" {
+  }
+  RplComponent "{69D1000400000003}" {
+  }
+  SPT_WarfareMissionObjectiveComponent "{69D1000400000004}" {
+  }
+  SPT_WarfareMissionInteractionComponent "{69D1000400000005}" {
+   m_iDurationSeconds 120
+   m_fDefenseRadius 25
+  }
+ }
+ {
+  GenericEntity Transmitter : "{82CCE96E35DC6A6E}Prefabs/Structures/Military/Antennas/Antenna_BARS_01/Antenna_BARS_01_transmitter.et" {
+   components {
+    SPT_WarfareMissionPlacementComponent "{69D1000400000010}" {
+    }
+    SPT_WarfareMissionRuinTargetComponent "{69D1000400000011}" {
+     m_rRuinPrefab "{A1BFC68C5E0BC9D0}Prefabs/Structures/Military/Antennas/Antenna_BARS_01/Dst/Antenna_BARS_01_transmitter_Ruin.et"
+    }
+    ActionsManagerComponent "{69D1000400000006}" {
+     ActionContexts {
+      UserActionContext "{69D1000400000007}" {
+       ContextName "default"
+       Position PointInfo "{69D1000400000008}" {
+       }
+       Radius 4
+      }
+     }
+     additionalActions {
+      SPT_InteractWarfareMissionAction "{69D1000400000009}" {
+       ParentContextList {
+        "default"
+       }
+       UIInfo UIInfo "{69D100040000000A}" {
+        Name "Ativar transmissor"
+       }
+       VisibilityRange 5
+       "Sort Priority" 100
+      }
+     }
+    }
+   }
+  }
+  GenericEntity Environment : "{F1C5F8E2EF1105F9}Prefabs/Compositions/Misc/SubCompositions/Tent_HQ_Camo_Cluttered_US_01.et" {
+   components {
+    SPT_WarfareMissionPlacementComponent "{69D1000400000012}" {
+    }
+   }
+   coords 9 0 2
+   angles 0 90 0
+  }
+ }
+ Flags 1027
+}

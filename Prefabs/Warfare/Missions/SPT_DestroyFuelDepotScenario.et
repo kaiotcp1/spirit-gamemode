@@ -1,0 +1,69 @@
+GenericEntity {
+ ID "69D1000200000001"
+ components {
+  SPT_WarfareMissionScenarioComponent "{69D1000200000002}" {
+  }
+  RplComponent "{69D1000200000003}" {
+  }
+  SPT_WarfareMissionObjectiveComponent "{69D1000200000004}" {
+  }
+  SPT_WarfareMissionInteractionComponent "{69D1000200000005}" {
+   m_iDurationSeconds 15
+  }
+ }
+ {
+  GenericEntity FuelTank_1 : "{5CC8525A69118B0C}Prefabs/Structures/Industrial/Containers/FuelTanks/FuelTank_01/FuelTank_01_orange.et" {
+   components {
+    SPT_WarfareMissionPlacementComponent "{69D1000200000010}" {
+    }
+    SPT_WarfareMissionRuinTargetComponent "{69D1000200000011}" {
+     m_rRuinPrefab "{6893FA045768E152}Prefabs/Structures/Industrial/Containers/FuelTanks/FuelTank_01/FuelTank_01_orange_Ruin.et"
+    }
+    ActionsManagerComponent "{69D1000200000006}" {
+     ActionContexts {
+      UserActionContext "{69D1000200000007}" {
+       ContextName "default"
+       Position PointInfo "{69D1000200000008}" {
+       }
+       Radius 4
+      }
+     }
+     additionalActions {
+      SPT_InteractWarfareMissionAction "{69D1000200000009}" {
+       ParentContextList {
+        "default"
+       }
+       UIInfo UIInfo "{69D100020000000A}" {
+        Name "Plantar explosivos"
+       }
+       VisibilityRange 5
+       "Sort Priority" 100
+      }
+     }
+    }
+   }
+   coords -3 0 0
+  }
+  GenericEntity FuelTank_2 : "{5CC8525A69118B0C}Prefabs/Structures/Industrial/Containers/FuelTanks/FuelTank_01/FuelTank_01_orange.et" {
+   components {
+    SPT_WarfareMissionPlacementComponent "{69D1000200000012}" {
+    }
+    SPT_WarfareMissionRuinTargetComponent "{69D1000200000013}" {
+     m_rRuinPrefab "{6893FA045768E152}Prefabs/Structures/Industrial/Containers/FuelTanks/FuelTank_01/FuelTank_01_orange_Ruin.et"
+    }
+   }
+   coords 3 0 0
+  }
+  GenericEntity Environment : "{F1C5F8E2EF1105F9}Prefabs/Compositions/Misc/SubCompositions/Tent_HQ_Camo_Cluttered_US_01.et" {
+   components {
+    SPT_WarfareMissionPlacementComponent "{69D1000200000014}" {
+    }
+    SPT_WarfareMissionExplosionCleanupComponent "{69D1000200000015}" {
+    }
+   }
+   coords 10 0 3
+   angles 0 90 0
+  }
+ }
+ Flags 1027
+}

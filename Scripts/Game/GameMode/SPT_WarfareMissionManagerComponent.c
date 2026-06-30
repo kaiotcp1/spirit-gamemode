@@ -152,6 +152,22 @@ class SPT_WarfareMissionManagerComponent : ScriptComponent
 		return runtime.m_eState == SPT_EWarfareMissionState.ACTIVE;
 	}
 
+	bool CanInteractWithMission(string pointId, SPT_EWarfareMissionType missionType, IEntity scenarioEntity)
+	{
+		if (!Replication.IsServer() || pointId.IsEmpty() || !scenarioEntity || scenarioEntity.IsDeleted())
+			return false;
+
+		SPT_WarfareMissionRuntime runtime = m_mMissions.Get(pointId);
+		if (!runtime || !runtime.m_Config)
+			return false;
+		if (runtime.m_Config.m_eType != missionType)
+			return false;
+		if (runtime.m_ScenarioEntityId != scenarioEntity.GetID())
+			return false;
+
+		return runtime.m_eState == SPT_EWarfareMissionState.ACTIVE;
+	}
+
 	protected void MonitorMissions()
 	{
 		if (!Replication.IsServer())
@@ -286,6 +302,19 @@ class SPT_WarfareMissionManagerComponent : ScriptComponent
 		if (destruction)
 			destruction.Initialize(runtime.m_sPointId);
 
+		SPT_WarfareMissionInteractionComponent interaction = SPT_WarfareMissionInteractionComponent.Cast(
+			scenarioEntity.FindComponent(SPT_WarfareMissionInteractionComponent));
+		if (RequiresInteraction(runtime.m_Config.m_eType) && !interaction)
+		{
+			Print(string.Format("[SPT_WarfareMission] Missao interativa sem controlador na raiz | pointId=%1 | tipo=%2",
+				runtime.m_sPointId, runtime.m_Config.m_eType), LogLevel.ERROR);
+			SCR_EntityHelper.DeleteEntityAndChildren(scenarioEntity);
+			runtime.m_bActivationFailed = true;
+			return;
+		}
+		if (interaction)
+			interaction.Initialize(runtime.m_sPointId, runtime.m_Config.m_eType);
+
 		objective.Initialize(runtime.m_sPointId);
 		runtime.m_ScenarioEntityId = scenarioEntity.GetID();
 		runtime.m_ObjectiveEntityId = objective.GetOwner().GetID();
@@ -359,7 +388,15 @@ class SPT_WarfareMissionManagerComponent : ScriptComponent
 		if (!objective)
 			return true;
 
-		return objective.IsDestroyed();
+		return objective.IsCompleted();
+	}
+
+	protected bool RequiresInteraction(SPT_EWarfareMissionType missionType)
+	{
+		return missionType == SPT_EWarfareMissionType.SABOTAGE_COMMUNICATIONS ||
+			missionType == SPT_EWarfareMissionType.DESTROY_FUEL_DEPOT ||
+			missionType == SPT_EWarfareMissionType.STEAL_INTELLIGENCE ||
+			missionType == SPT_EWarfareMissionType.DEFEND_TRANSMITTER;
 	}
 
 	protected void CompleteMission(SPT_WarfareMissionRuntime runtime)
@@ -400,11 +437,12 @@ class SPT_WarfareMissionManagerComponent : ScriptComponent
 		if (notifyRaw == 0 || oldState == stateRaw)
 			return;
 
+		string objectiveName = GetMissionObjectiveName(typeRaw);
 		string message;
 		if (stateRaw == SPT_EWarfareMissionState.ACTIVE)
-			message = string.Format("Missao em %1: destrua a ammo cache.", displayName);
+			message = string.Format("Missao em %1: %2.", displayName, objectiveName);
 		else if (stateRaw == SPT_EWarfareMissionState.COMPLETED)
-			message = string.Format("Missao concluida em %1: ammo cache destruida.", displayName);
+			message = string.Format("Missao concluida em %1: %2.", displayName, objectiveName);
 
 		if (message.IsEmpty())
 			return;
@@ -412,6 +450,20 @@ class SPT_WarfareMissionManagerComponent : ScriptComponent
 		SCR_HintManagerComponent hintManager = SCR_HintManagerComponent.GetInstance();
 		if (hintManager)
 			hintManager.ShowCustom(message);
+	}
+
+	protected string GetMissionObjectiveName(SPT_EWarfareMissionType missionType)
+	{
+		switch (missionType)
+		{
+			case SPT_EWarfareMissionType.DESTROY_AMMO_CACHE: return "destrua a ammo cache";
+			case SPT_EWarfareMissionType.SABOTAGE_COMMUNICATIONS: return "sabote o posto de comunicacao";
+			case SPT_EWarfareMissionType.DESTROY_FUEL_DEPOT: return "destrua o deposito de combustivel";
+			case SPT_EWarfareMissionType.STEAL_INTELLIGENCE: return "roube a inteligencia inimiga";
+			case SPT_EWarfareMissionType.ELIMINATE_OFFICER: return "elimine o oficial inimigo";
+			case SPT_EWarfareMissionType.DEFEND_TRANSMITTER: return "ative e defenda o transmissor";
+		}
+		return "conclua o objetivo";
 	}
 
 	override bool RplSave(ScriptBitWriter writer)

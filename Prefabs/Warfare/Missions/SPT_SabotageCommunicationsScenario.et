@@ -1,0 +1,66 @@
+GenericEntity {
+ ID "69D1000100000001"
+ components {
+  SPT_WarfareMissionScenarioComponent "{69D1000100000002}" {
+  }
+  RplComponent "{69D1000100000003}" {
+  }
+  SPT_WarfareMissionObjectiveComponent "{69D1000100000004}" {
+  }
+  SPT_WarfareMissionInteractionComponent "{69D1000100000005}" {
+   m_iDurationSeconds 12
+  }
+ }
+ {
+  GenericEntity Antenna : "{11153A8B7A2F5D20}Prefabs/Structures/Military/Antennas/Antenna_BARS_01/Antenna_BARS_01.et" {
+   components {
+    SPT_WarfareMissionPlacementComponent "{69D1000100000010}" {
+    }
+    SPT_WarfareMissionRuinTargetComponent "{69D1000100000011}" {
+     m_rRuinPrefab "{7CC7516C8AB0B08F}Prefabs/Structures/Military/Antennas/Antenna_BARS_01/Dst/Antenna_BARS_01_Ruin.et"
+    }
+   }
+  }
+  GenericEntity Terminal : "{A9DC69EC1CE466A0}Prefabs/Props/Civilian/Computer_E_01/Computer_E_01_on.et" {
+   components {
+    SPT_WarfareMissionPlacementComponent "{69D1000100000013}" {
+     m_fVerticalOffset 0.8
+    }
+    ActionsManagerComponent "{69D1000100000006}" {
+     ActionContexts {
+      UserActionContext "{69D1000100000007}" {
+       ContextName "default"
+       Position PointInfo "{69D1000100000008}" {
+       }
+       Radius 3
+      }
+     }
+     additionalActions {
+      SPT_InteractWarfareMissionAction "{69D1000100000009}" {
+       ParentContextList {
+        "default"
+       }
+       UIInfo UIInfo "{69D100010000000A}" {
+        Name "Sabotar comunicacoes"
+       }
+       VisibilityRange 5
+       "Sort Priority" 100
+      }
+     }
+    }
+   }
+   coords 3 0 0
+  }
+  GenericEntity Environment : "{F1C5F8E2EF1105F9}Prefabs/Compositions/Misc/SubCompositions/Tent_HQ_Camo_Cluttered_US_01.et" {
+   components {
+    SPT_WarfareMissionPlacementComponent "{69D1000100000012}" {
+    }
+    SPT_WarfareMissionExplosionCleanupComponent "{69D1000100000014}" {
+    }
+   }
+   coords 9 0 2
+   angles 0 90 0
+  }
+ }
+ Flags 1027
+}

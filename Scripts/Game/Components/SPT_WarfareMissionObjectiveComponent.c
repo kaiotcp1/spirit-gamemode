@@ -1,7 +1,6 @@
-//! Marca a entidade destrutivel que conclui a missao da composicao.
-//! Suporta tanto destruicao por dano (tiros/explosivos) quanto
-//! destruicao programatica via TriggerDestruction (ex: acao do jogador).
-[ComponentEditorProps(category: "SPT/Warfare/Mission", description: "Objetivo destrutivel de uma missao Warfare.")]
+//! Marca a entidade cuja conclusao encerra a missao da composicao.
+//! Suporta conclusao programatica e eliminacao por DamageManager.
+[ComponentEditorProps(category: "SPT/Warfare/Mission", description: "Objetivo principal de uma missao Warfare.")]
 class SPT_WarfareMissionObjectiveComponentClass : ScriptComponentClass
 {
 }
@@ -9,12 +8,12 @@ class SPT_WarfareMissionObjectiveComponentClass : ScriptComponentClass
 class SPT_WarfareMissionObjectiveComponent : ScriptComponent
 {
 	protected string m_sPointId;
-	protected bool m_bDestroyedByAction;
+	protected bool m_bCompletedByAction;
 
 	void Initialize(string pointId)
 	{
 		m_sPointId = pointId;
-		m_bDestroyedByAction = false;
+		m_bCompletedByAction = false;
 	}
 
 	string GetPointId()
@@ -22,16 +21,21 @@ class SPT_WarfareMissionObjectiveComponent : ScriptComponent
 		return m_sPointId;
 	}
 
-	//! Chamado por SPT_AmmoCacheDestructionComponent apos o timer de explosao.
-	void TriggerDestruction()
+	//! Conclui objetivos controlados por interacao.
+	void CompleteObjective()
 	{
-		m_bDestroyedByAction = true;
+		m_bCompletedByAction = true;
 	}
 
-	bool IsDestroyed()
+	//! Compatibilidade com o controlador AmmoCache existente.
+	void TriggerDestruction()
 	{
-		// Destruicao programatica (acao do jogador)
-		if (m_bDestroyedByAction)
+		CompleteObjective();
+	}
+
+	bool IsCompleted()
+	{
+		if (m_bCompletedByAction)
 			return true;
 
 		IEntity owner = GetOwner();
@@ -44,5 +48,11 @@ class SPT_WarfareMissionObjectiveComponent : ScriptComponent
 			return false;
 
 		return damageManager.GetHealthScaled() <= 0.0;
+	}
+
+	//! Compatibilidade com chamadas anteriores.
+	bool IsDestroyed()
+	{
+		return IsCompleted();
 	}
 }

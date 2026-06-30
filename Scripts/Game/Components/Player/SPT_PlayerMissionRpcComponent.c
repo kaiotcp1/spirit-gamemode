@@ -6,6 +6,34 @@ class SPT_PlayerMissionRpcComponentClass : ScriptComponentClass
 
 class SPT_PlayerMissionRpcComponent : ScriptComponent
 {
+	void RequestMissionInteraction(RplId scenarioRplId)
+	{
+		if (!scenarioRplId.IsValid())
+			return;
+
+		if (Replication.IsServer())
+			RpcAsk_MissionInteraction(scenarioRplId);
+		else
+			Rpc(RpcAsk_MissionInteraction, scenarioRplId);
+	}
+
+	[RplRpc(RplChannel.Reliable, RplRcver.Server)]
+	protected void RpcAsk_MissionInteraction(RplId scenarioRplId)
+	{
+		IEntity scenario = ResolveRplId(scenarioRplId);
+		if (!scenario || scenario.IsDeleted())
+			return;
+
+		SPT_WarfareMissionInteractionComponent interaction = SPT_WarfareMissionInteractionComponent.Cast(
+			scenario.FindComponent(SPT_WarfareMissionInteractionComponent));
+		if (!interaction)
+			return;
+
+		IEntity player = ResolveOwningPlayer();
+		if (player)
+			interaction.TryInteract(player);
+	}
+
 	void RequestDestroyAmmoCache(RplId scenarioRplId)
 	{
 		if (!scenarioRplId.IsValid())
@@ -29,20 +57,27 @@ class SPT_PlayerMissionRpcComponent : ScriptComponent
 		if (!destruction)
 			return;
 
+		IEntity player = ResolveOwningPlayer();
+		if (player)
+			destruction.TryStartDestruction(player);
+	}
+
+	protected IEntity ResolveOwningPlayer()
+	{
 		SCR_PlayerController playerController = SCR_PlayerController.Cast(GetOwner());
 		if (!playerController)
-			return;
+			return null;
 
 		int playerId = playerController.GetPlayerId();
 		PlayerManager playerManager = GetGame().GetPlayerManager();
 		if (!playerManager)
-			return;
+			return null;
 
 		IEntity player = playerManager.GetPlayerControlledEntity(playerId);
 		if (!player || player.IsDeleted())
-			return;
+			return null;
 
-		destruction.TryStartDestruction(player);
+		return player;
 	}
 
 	protected IEntity ResolveRplId(RplId rplId)

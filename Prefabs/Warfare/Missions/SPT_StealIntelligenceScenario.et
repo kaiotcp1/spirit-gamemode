@@ -1,0 +1,59 @@
+GenericEntity {
+ ID "69D1000300000001"
+ components {
+  SPT_WarfareMissionScenarioComponent "{69D1000300000002}" {
+  }
+  RplComponent "{69D1000300000003}" {
+  }
+  SPT_WarfareMissionObjectiveComponent "{69D1000300000004}" {
+  }
+  SPT_WarfareMissionInteractionComponent "{69D1000300000005}" {
+   m_iDurationSeconds 1
+  }
+ }
+ {
+  GenericEntity Table : "{757FCCE8E756175C}Prefabs/Props/Furniture/MeetingTable_01.et" {
+   components {
+    SPT_WarfareMissionPlacementComponent "{69D1000300000010}" {
+    }
+   }
+  }
+  GenericEntity Computer : "{A9DC69EC1CE466A0}Prefabs/Props/Civilian/Computer_E_01/Computer_E_01_on.et" {
+   components {
+    ActionsManagerComponent "{69D1000300000006}" {
+     ActionContexts {
+      UserActionContext "{69D1000300000007}" {
+       ContextName "default"
+       Position PointInfo "{69D1000300000008}" {
+       }
+       Radius 2.5
+      }
+     }
+     additionalActions {
+      SPT_InteractWarfareMissionAction "{69D1000300000009}" {
+       ParentContextList {
+        "default"
+       }
+       UIInfo UIInfo "{69D100030000000A}" {
+        Name "Coletar inteligencia"
+       }
+       VisibilityRange 4
+       "Sort Priority" 100
+      }
+     }
+    }
+   }
+   coords 0 0.82 0
+   angles 0 180 0
+  }
+  GenericEntity Environment : "{F1C5F8E2EF1105F9}Prefabs/Compositions/Misc/SubCompositions/Tent_HQ_Camo_Cluttered_US_01.et" {
+   components {
+    SPT_WarfareMissionPlacementComponent "{69D1000300000011}" {
+    }
+   }
+   coords 5 0 0
+   angles 0 90 0
+  }
+ }
+ Flags 1027
+}
