@@ -16,7 +16,8 @@ class SPT_AmmoCacheDestructionComponent : ScriptComponent
 {
 	protected const float MAX_INTERACTION_DISTANCE = 4.0;
 	protected const int TIMER_TICK_MS = 1000;
-	protected const int SCENARIO_DELETE_DELAY_MS = 2000;
+	protected const int DECORATION_DELETE_DELAY_MS = 500;
+	protected const int ROOT_DELETE_DELAY_MS = 500;
 	protected const ResourceName DEFAULT_EXPLOSION_PREFAB =
 		"{7E091BB73AC18ED0}Prefabs/Weapons/Warheads/Explosions/Explosion_AmmoRack_Medium.et";
 	protected const ResourceName DEFAULT_EXPLOSION_SOUND_PREFAB =
@@ -53,6 +54,7 @@ class SPT_AmmoCacheDestructionComponent : ScriptComponent
 	void ~SPT_AmmoCacheDestructionComponent()
 	{
 		GetGame().GetCallqueue().Remove(TimerTick);
+		GetGame().GetCallqueue().Remove(RemoveDecorationsAfterExplosion);
 		GetGame().GetCallqueue().Remove(DeleteScenario);
 	}
 
@@ -145,16 +147,17 @@ class SPT_AmmoCacheDestructionComponent : ScriptComponent
 
 		SpawnExplosion(owner.GetOrigin());
 		PlayExplosionSound(owner.GetOrigin());
-		RpcDo_RemoveScenarioDecorations();
-		Rpc(RpcDo_RemoveScenarioDecorations);
 		Replication.BumpMe();
 		OnDestructionStateChanged();
 
 		Print(string.Format("[SPT_AmmoCache] Cache detonado | pointId=%1 | posicao=%2",
 			m_sPointId, owner.GetOrigin()));
 
-		// Mantem a entidade replicada viva tempo suficiente para entregar o estado terminal.
-		GetGame().GetCallqueue().CallLater(DeleteScenario, SCENARIO_DELETE_DELAY_MS, false);
+		// Mantem a composicao visivel durante o efeito da explosao.
+		GetGame().GetCallqueue().CallLater(
+			RemoveDecorationsAfterExplosion,
+			DECORATION_DELETE_DELAY_MS,
+			false);
 	}
 
 	protected void SpawnExplosion(vector position)
@@ -209,13 +212,25 @@ class SPT_AmmoCacheDestructionComponent : ScriptComponent
 			Print(string.Format("[SPT_AmmoCache] Falha ao criar som da explosao | prefab=%1", soundPrefab), LogLevel.ERROR);
 	}
 
+	protected void RemoveDecorationsAfterExplosion()
+	{
+		if (!Replication.IsServer())
+			return;
+
+		RpcDo_RemoveScenarioDecorations();
+		Rpc(RpcDo_RemoveScenarioDecorations);
+
+		// Preserva a raiz brevemente para garantir a entrega do RPC de limpeza.
+		GetGame().GetCallqueue().CallLater(DeleteScenario, ROOT_DELETE_DELAY_MS, false);
+	}
+
 	protected void DeleteScenario()
 	{
 		if (!Replication.IsServer())
 			return;
 
 		// Fallback autoritativo caso alguma entidade nao estivesse disponivel
-		// no frame em que a explosao foi executada.
+		// no momento da limpeza sincronizada.
 		RemoveScenarioDecorations();
 
 		Print(string.Format("[SPT_AmmoCache] Raiz do cenario removida | pointId=%1", m_sPointId));

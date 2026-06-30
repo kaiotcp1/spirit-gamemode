@@ -32,6 +32,9 @@ $grp GenericEntity : "{B1F6A2439C8D7500}Prefabs/Warfare/SPT_WarfarePoint.et" {
     m_aBattleGroupPrefabs {
      "{B7AB5D3F8A7ADAE4}Prefabs/Groups/BLUFOR/Group_US_PlatoonHQ.et"
     }
+    m_bMissionEnabled 1
+    m_eMissionType DESTROY_AMMO_CACHE
+    m_fMissionActivationDistance 200
    }
   }
   coords 3143.604 11.5 2771.175
@@ -48,6 +51,9 @@ $grp GenericEntity : "{B1F6A2439C8D7500}Prefabs/Warfare/SPT_WarfarePoint.et" {
     m_fGarrisonPatrolRadius 200
     m_iGarrisonSpawnIntervalMs 2000
     m_fBattleConvoyWeight 0.45
+    m_bMissionEnabled 1
+    m_eMissionType DESTROY_AMMO_CACHE
+    m_fMissionActivationDistance 200
    }
   }
   coords 1387.854 36.219 2365.719
@@ -64,6 +70,7 @@ $grp GenericEntity : "{B1F6A2439C8D7500}Prefabs/Warfare/SPT_WarfarePoint.et" {
     m_fGarrisonPatrolRadius 200
     m_bMissionEnabled 1
     m_eMissionType DESTROY_AMMO_CACHE
+    m_fMissionActivationDistance 200
     m_fMissionTerrainSearchRadius 20
    }
   }
@@ -87,5 +94,5 @@ GenericEntity : "{D4A8C0512E7B9400}Prefabs/Warfare/SPT_WarfareHQ.et" {
    m_fRadius 250
   }
  }
- coords 1134.855 38.001 2836.099
+ coords 1345.469 37.778 2970.094
 }
