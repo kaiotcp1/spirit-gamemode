@@ -1,5 +1,3 @@
-#ifdef WORKBENCH
-
 class SPT_RoadSourcePoint : Managed
 {
 	vector m_vPosition;
@@ -165,5 +163,3 @@ class SPT_RoadNetworkTool : WorldEditorTool
 		generator.Run();
 	}
 }
-
-#endif
