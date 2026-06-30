@@ -6,50 +6,22 @@ class SPT_RoadPath : Managed
 	float width;
 }
 
-class SPT_RoadNetworkDataset : Managed
-{
-	ref array<ref SPT_RoadPath> roads = new array<ref SPT_RoadPath>();
-
-	bool Load(string path)
-	{
-		if (path.IsEmpty())
-			return false;
-
-		JsonLoadContext context = new JsonLoadContext();
-		if (!context.LoadFromFile(path))
-			return false;
-
-		return context.ReadValue("roads", roads) && !roads.IsEmpty();
-	}
-}
-
-//! Runtime server-only view of the Workbench-generated road dataset.
-//! The JSON uses the same top-level "roads" and point arrays as the
-//! Freedom dataset, while the SPT runtime intentionally loads only the
-//! fields needed to form a convoy.
+//! Runtime server-only access to the engine road network.
+//! The Workbench JSON generator remains available for diagnostics, but convoy
+//! placement queries BaseRoad data directly and has no external file dependency.
 class SPT_RoadNetworkService
 {
-	protected static ref SPT_RoadNetworkDataset s_Dataset;
-
-	static bool Load(string path)
+	protected static RoadNetworkManager GetRoadNetwork()
 	{
-		SPT_RoadNetworkDataset dataset = new SPT_RoadNetworkDataset();
-		if (!dataset.Load(path))
-		{
-			s_Dataset = null;
-			Print(string.Format("[SPT_RoadNetwork] Dataset indisponivel: %1", path), LogLevel.WARNING);
-			return false;
-		}
-
-		s_Dataset = dataset;
-		Print(string.Format("[SPT_RoadNetwork] Dataset carregado | caminho=%1 | estradas=%2",
-			path, dataset.roads.Count()));
-		return true;
+		ChimeraAIWorld aiWorld = ChimeraAIWorld.Cast(GetGame().GetAIWorld());
+		if (!aiWorld)
+			return null;
+		return aiWorld.GetRoadNetworkManager();
 	}
 
 	static bool IsAvailable()
 	{
-		return s_Dataset && !s_Dataset.roads.IsEmpty();
+		return GetRoadNetwork() != null;
 	}
 
 	static bool FindConvoyPositions(
@@ -61,35 +33,42 @@ class SPT_RoadNetworkService
 		out array<vector> positions)
 	{
 		positions.Clear();
-		if (!IsAvailable() || count < 1)
+		if (count < 1 || maximumDistance < 0)
+			return false;
+
+		RoadNetworkManager roadNetwork = GetRoadNetwork();
+		if (!roadNetwork)
 			return false;
 
 		float minimumSq = minimumDistance * minimumDistance;
 		float maximumSq = maximumDistance * maximumDistance;
-		array<ref SPT_RoadPath> candidates = {};
-
-		foreach (SPT_RoadPath road : s_Dataset.roads)
-		{
-			if (!road || road.points.Count() < 2 || road.width < 4.0)
-				continue;
-
-			foreach (vector point : road.points)
-			{
-				float distanceSq = vector.DistanceSqXZ(point, target);
-				if (distanceSq >= minimumSq && distanceSq <= maximumSq)
-				{
-					candidates.Insert(road);
-					break;
-				}
-			}
-		}
+		vector boundsMinimum = target - Vector(maximumDistance, 10000.0, maximumDistance);
+		vector boundsMaximum = target + Vector(maximumDistance, 10000.0, maximumDistance);
+		array<BaseRoad> candidates = {};
+		roadNetwork.GetRoadsInAABB(boundsMinimum, boundsMaximum, candidates);
 
 		while (!candidates.IsEmpty())
 		{
 			int candidateIndex = Math.RandomInt(0, candidates.Count());
-			SPT_RoadPath candidate = candidates[candidateIndex];
+			BaseRoad candidate = candidates[candidateIndex];
 			candidates.Remove(candidateIndex);
-			if (TryBuildFormation(candidate, target, minimumSq, maximumSq, count, spacing, positions))
+			if (!candidate || candidate.GetWidth() < 4.0)
+				continue;
+
+			array<vector> roadPoints = {};
+			candidate.GetPoints(roadPoints);
+			if (roadPoints.Count() < 2)
+				continue;
+
+			if (TryBuildFormation(
+				roadPoints,
+				candidate.GetWidth(),
+				target,
+				minimumSq,
+				maximumSq,
+				count,
+				spacing,
+				positions))
 				return true;
 			positions.Clear();
 		}
@@ -98,7 +77,8 @@ class SPT_RoadNetworkService
 	}
 
 	protected static bool TryBuildFormation(
-		notnull SPT_RoadPath road,
+		notnull array<vector> roadPoints,
+		float roadWidth,
 		vector target,
 		float minimumSq,
 		float maximumSq,
@@ -107,9 +87,9 @@ class SPT_RoadNetworkService
 		out array<vector> positions)
 	{
 		int startIndex = -1;
-		for (int i = 0; i < road.points.Count(); i++)
+		for (int i = 0; i < roadPoints.Count(); i++)
 		{
-			float distanceSq = vector.DistanceSqXZ(road.points[i], target);
+			float distanceSq = vector.DistanceSqXZ(roadPoints[i], target);
 			if (distanceSq >= minimumSq && distanceSq <= maximumSq)
 			{
 				startIndex = i;
@@ -120,43 +100,45 @@ class SPT_RoadNetworkService
 			return false;
 
 		int direction = 1;
-		if (startIndex + 1 >= road.points.Count())
+		if (startIndex + 1 >= roadPoints.Count())
 			direction = -1;
 
-		vector lastPlacement = road.points[startIndex];
-		positions.Insert(OffsetToLane(road, startIndex, direction));
+		positions.Insert(OffsetToLane(roadPoints, roadWidth, startIndex, direction));
 		float accumulated;
 		int pointIndex = startIndex;
 
 		while (positions.Count() < count)
 		{
 			int nextIndex = pointIndex + direction;
-			if (nextIndex < 0 || nextIndex >= road.points.Count())
+			if (nextIndex < 0 || nextIndex >= roadPoints.Count())
 				return false;
 
-			accumulated += vector.DistanceXZ(road.points[pointIndex], road.points[nextIndex]);
+			accumulated += vector.DistanceXZ(roadPoints[pointIndex], roadPoints[nextIndex]);
 			pointIndex = nextIndex;
 			if (accumulated < spacing)
 				continue;
 
-			lastPlacement = road.points[pointIndex];
-			positions.Insert(OffsetToLane(road, pointIndex, direction));
+			positions.Insert(OffsetToLane(roadPoints, roadWidth, pointIndex, direction));
 			accumulated = 0;
 		}
 
 		return true;
 	}
 
-	protected static vector OffsetToLane(notnull SPT_RoadPath road, int pointIndex, int direction)
+	protected static vector OffsetToLane(
+		notnull array<vector> roadPoints,
+		float roadWidth,
+		int pointIndex,
+		int direction)
 	{
 		int lookIndex = pointIndex + direction;
-		if (lookIndex < 0 || lookIndex >= road.points.Count())
+		if (lookIndex < 0 || lookIndex >= roadPoints.Count())
 			lookIndex = pointIndex - direction;
 
-		vector forward = road.points[lookIndex] - road.points[pointIndex];
+		vector forward = roadPoints[lookIndex] - roadPoints[pointIndex];
 		forward = forward.Normalized();
 		vector right = Vector(-forward[2], 0, forward[0]);
-		vector result = road.points[pointIndex] + right * road.width * 0.25;
+		vector result = roadPoints[pointIndex] + right * roadWidth * 0.25;
 		result[1] = result[1] + 0.3;
 		return result;
 	}

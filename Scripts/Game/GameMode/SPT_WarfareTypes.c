@@ -59,6 +59,7 @@ class SPT_GarrisonLocationConfig : Managed
 	float m_fBattleConcentratedWeight = 0.25;
 	float m_fBattleSpreadedWeight = 0.35;
 	float m_fBattleConvoyWeight = 0.4;
+	float m_fBattleVehicleReinforcementChance;
 	ref array<ResourceName> m_aBattleGroupPrefabs = new array<ResourceName>();
 	ref array<ref SPT_BattleVehicleConfig> m_aBattleVehicles = new array<ref SPT_BattleVehicleConfig>();
 }

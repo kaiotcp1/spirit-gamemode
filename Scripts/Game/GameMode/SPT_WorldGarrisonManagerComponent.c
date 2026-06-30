@@ -423,9 +423,6 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 	[Attribute("500", desc: "Game Master AI budget used by the garrison. Increase this when many locations can be active simultaneously. Set to 0 to keep the scenario budget unchanged.")]
 	protected int m_iGameMasterAIBudget;
 
-	[Attribute("$profile:/SPT_RoadNetwork.json", desc: "Caminho do JSON de rede viaria gerado no Workbench.", category: "Batalha")]
-	protected string m_sRoadNetworkDatasetPath;
-
 	//! Mantidos apenas para o codigo legado de descritores, que nao e mais executado.
 	protected float m_fMinimumLocationSpacing;
 	protected bool m_bIncludeSettlements;
@@ -465,8 +462,6 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		}
 
 		s_Instance = this;
-		if (!m_sRoadNetworkDatasetPath.IsEmpty())
-			SPT_RoadNetworkService.Load(m_sRoadNetworkDatasetPath);
 
 		ValidateSettings();
 		DebugLog("Inicializacao agendada em 1000 ms; configuracoes de area serao lidas exclusivamente dos SPT_WarfarePoint.");
@@ -714,6 +709,11 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 	protected float GetLocationBattleConvoyWeight(notnull SPT_GarrisonLocation location)
 	{
 		return Math.Max(0.0, location.m_Config.m_fBattleConvoyWeight);
+	}
+
+	protected float GetLocationBattleVehicleReinforcementChance(notnull SPT_GarrisonLocation location)
+	{
+		return Math.Clamp(location.m_Config.m_fBattleVehicleReinforcementChance, 0.0, 1.0);
 	}
 
 	protected ResourceName GetLocationPatrolWaypointPrefab(notnull SPT_GarrisonLocation location)
@@ -1692,6 +1692,13 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 
 	protected SPT_EDeploymentStrategy SelectBattleStrategy(notnull SPT_GarrisonLocation location)
 	{
+		float vehicleChance = GetLocationBattleVehicleReinforcementChance(location);
+		if (CanDeployConvoy(location))
+		{
+			if (vehicleChance >= 1.0 || Math.RandomFloat01() < vehicleChance)
+				return SPT_EDeploymentStrategy.CONVOY;
+		}
+
 		float concentrated = Math.Max(0.0, GetLocationBattleConcentratedWeight(location));
 		float spreaded = Math.Max(0.0, GetLocationBattleSpreadedWeight(location));
 		float convoy = Math.Max(0.0, GetLocationBattleConvoyWeight(location));
@@ -1817,7 +1824,17 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 
 		array<vector> positions = {};
 		int estimatedGroups = Math.Max(1, (wave.m_iUnitBudget + 7) / 8);
-		BuildBattleSpawnPositions(location, wave.m_eStrategy, estimatedGroups, positions);
+		bool requestedPlacementBuilt = BuildBattleSpawnPositions(
+			location,
+			wave.m_eStrategy,
+			estimatedGroups,
+			positions);
+		if (!requestedPlacementBuilt && wave.m_eStrategy == SPT_EDeploymentStrategy.CONVOY)
+		{
+			Print(string.Format("[SPT_WorldGarrison] Nenhuma estrada adequada para CONVOY; usando SPREADED | local=%1",
+				location.m_sName), LogLevel.WARNING);
+			wave.m_eStrategy = SPT_EDeploymentStrategy.SPREADED;
+		}
 		if (positions.IsEmpty())
 		{
 			wave.m_bDeploymentFinished = true;
@@ -2110,13 +2127,14 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		return !members.IsEmpty();
 	}
 
-	protected void BuildBattleSpawnPositions(
+	protected bool BuildBattleSpawnPositions(
 		notnull SPT_GarrisonLocation location,
 		SPT_EDeploymentStrategy strategy,
 		int count,
 		out array<vector> positions)
 	{
 		positions.Clear();
+		bool requestedPlacementBuilt = true;
 		float minDistance = GetLocationBattleSpawnDistanceMin(location);
 		float maxDistance = GetLocationBattleSpawnDistanceMax(location);
 		if (maxDistance < minDistance)
@@ -2130,18 +2148,30 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 				maxDistance,
 				count,
 				20.0,
-				positions))
-				return;
+				positions)
+				&& AreBattlePositionsDry(positions))
+			{
+				return true;
+			}
+			positions.Clear();
 			strategy = SPT_EDeploymentStrategy.SPREADED;
+			requestedPlacementBuilt = false;
 		}
 
 		float baseAngle = Math.RandomFloat01() * Math.PI * 2.0;
 		float concentratedAngle = baseAngle;
-		for (int i = 0; i < count; i++)
+		int attempts;
+		int maximumAttempts = Math.Max(count * 12, 12);
+		while (positions.Count() < count && attempts < maximumAttempts)
 		{
 			float angle = concentratedAngle;
 			if (strategy == SPT_EDeploymentStrategy.SPREADED)
-				angle = baseAngle + i * Math.PI * 2.0 / count;
+			{
+				float sectorSize = Math.PI * 2.0 / count;
+				angle = baseAngle
+					+ positions.Count() * sectorSize
+					+ (Math.RandomFloat01() - 0.5) * sectorSize;
+			}
 			float distance = minDistance
 				+ Math.RandomFloat01() * (maxDistance - minDistance);
 			vector position = location.m_vCenter + Vector(
@@ -2149,8 +2179,48 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 				0,
 				Math.Sin(angle) * distance);
 			position[1] = GetGame().GetWorld().GetSurfaceY(position[0], position[2]) + 0.2;
-			positions.Insert(position);
+			attempts++;
+			if (!IsBattlePositionInWater(position))
+				positions.Insert(position);
 		}
+		if (positions.Count() < count)
+		{
+			Print(string.Format("[SPT_WorldGarrison] Reforcos limitados por falta de posicoes secas | local=%1 | solicitadas=%2 | encontradas=%3",
+				location.m_sName, count, positions.Count()), LogLevel.WARNING);
+		}
+		return requestedPlacementBuilt;
+	}
+
+	protected bool AreBattlePositionsDry(notnull array<vector> positions)
+	{
+		foreach (vector position : positions)
+		{
+			if (IsBattlePositionInWater(position))
+				return false;
+		}
+		return true;
+	}
+
+	protected bool IsBattlePositionInWater(vector position)
+	{
+		BaseWorld world = GetGame().GetWorld();
+		if (!world)
+			return true;
+
+		vector waterSurfacePoint;
+		vector waterTransform[4];
+		vector waterExtents;
+		EWaterSurfaceType waterType;
+		if (!ChimeraWorldUtils.TryGetWaterSurface(
+			world,
+			position,
+			waterSurfacePoint,
+			waterType,
+			waterTransform,
+			waterExtents))
+			return false;
+
+		return waterSurfacePoint[1] >= position[1] - 0.25;
 	}
 
 	protected bool CanDeployConvoy(notnull SPT_GarrisonLocation location)

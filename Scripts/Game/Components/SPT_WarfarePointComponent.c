@@ -98,6 +98,9 @@ class SPT_WarfarePointComponent : SPT_WarfareNodeComponent
 	[Attribute("0.4", desc: "Peso CONVOY.", category: "Garrison Battle")]
 	protected float m_fBattleConvoyWeight;
 
+	[Attribute("0", desc: "Chance de cada onda usar reforcos veiculares. 0 = somente o peso CONVOY; 1 = toda onda elegivel tenta spawnar veiculos.", category: "Garrison Battle")]
+	protected float m_fBattleVehicleReinforcementChance;
+
 	[Attribute("", UIWidgets.ResourceNamePicker, desc: "Grupos de reforco desta area. Vazio = reutiliza os grupos de patrulha desta area.", params: "et class=SCR_AIGroup", category: "Garrison Battle")]
 	protected ref array<ResourceName> m_aBattleGroupPrefabs;
 
@@ -140,6 +143,7 @@ class SPT_WarfarePointComponent : SPT_WarfareNodeComponent
 		config.m_fBattleConcentratedWeight = m_fBattleConcentratedWeight;
 		config.m_fBattleSpreadedWeight = m_fBattleSpreadedWeight;
 		config.m_fBattleConvoyWeight = m_fBattleConvoyWeight;
+		config.m_fBattleVehicleReinforcementChance = m_fBattleVehicleReinforcementChance;
 
 		if (m_aGarrisonCQBGroupPrefabs)
 		{
