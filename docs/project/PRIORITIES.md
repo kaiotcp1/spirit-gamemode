@@ -90,5 +90,4 @@ Salvar:
 - deduplicacao de descritores para pontos Warfare;
 - recaptura inimiga;
 - economia;
-- respawn dinamico do jogador;
 - encerramento automatico obrigatorio.

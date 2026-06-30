@@ -10,7 +10,7 @@ $grp GenericEntity : "{B1F6A2439C8D7500}Prefabs/Warfare/SPT_WarfarePoint.et" {
     m_fGarrisonDespawnHysteresis 100
     m_fGarrisonBuildingSearchRadius 200
     m_fGarrisonPatrolRadius 400
-    m_iGarrisonLocationBudget 20
+    m_iGarrisonLocationBudget 200
     m_iGarrisonSpawnIntervalMs 5000
     m_aGarrisonCQBGroupPrefabs {
      "{958039B857396B7B}Prefabs/Groups/BLUFOR/Group_US_MachineGunTeam.et"
@@ -28,6 +28,7 @@ $grp GenericEntity : "{B1F6A2439C8D7500}Prefabs/Warfare/SPT_WarfarePoint.et" {
     m_bBattleEnabled 1
     m_iBattleWaveUnitsMin 30
     m_iBattleWaveUnitsMax 60
+    m_fBattleVehicleReinforcementChance 1
     m_aBattleGroupPrefabs {
      "{B7AB5D3F8A7ADAE4}Prefabs/Groups/BLUFOR/Group_US_PlatoonHQ.et"
     }
@@ -74,13 +75,25 @@ $grp GenericEntity : "{CCC00D009D4949B0}Prefabs/Weapons/Explosives/Mine_TM62M/Mi
   coords 3157.098 11.563 2806.64
  }
 }
-GenericEntity : "{D4A8C0512E7B9400}Prefabs/Warfare/SPT_WarfareHQ.et" {
- components {
-  SPT_WarfareHQComponent "{D4A8C0512E7B9402}" {
-   m_sPointId "HQ_PLAYER"
-   m_sDisplayName "Base Inicial"
-   m_fRadius 250
+$grp GenericEntity : "{D4A8C0512E7B9400}Prefabs/Warfare/SPT_WarfareHQ.et" {
+ {
+  components {
+   SPT_WarfareHQComponent "{D4A8C0512E7B9402}" {
+    m_sPointId "HQ_PLAYER"
+    m_sDisplayName "Base Inicial"
+    m_fRadius 250
+   }
   }
+  coords 1280.475 37.509 2941.303
  }
- coords 1280.475 37.509 2941.303
+ {
+  components {
+   SPT_WarfareHQComponent "{D4A8C0512E7B9402}" {
+    m_sPointId "HQ_PLAYER 2"
+    m_sDisplayName "Base Inicial 2"
+    m_fRadius 250
+   }
+  }
+  coords 1134.855 38.001 2836.099
+ }
 }

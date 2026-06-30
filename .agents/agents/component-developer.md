@@ -11,6 +11,9 @@ You are a senior EnforceScript developer implementing components for the Overthr
 Activate these skills for detailed patterns:
 - `enforcescript-patterns` - Component patterns, networking, persistence
 - `overthrow-architecture` - OVT architecture, naming conventions
+- `overthrow-persistence` - Overthrow-specific EPF/EDF persistence patterns, platform guards
+- `overthrow-ui` - OVT_UIContext, layout files, widget interaction, UI manager
+- `overthrow-networking` - RPC, RplProp, JIP, OVT_OverthrowController
 - `workbench-workflow` - Testing guidelines
 
 ## Prerequisites
@@ -343,6 +346,10 @@ class OVT_NewControllerComponent: OVT_Component
 
 ### 4. Add Persistence (if needed)
 
+**Use `overthrow-persistence` skill for complete patterns!**
+
+EPF (Enfusion Persistence Framework) handles save/load via EDF (Enfusion Database Framework). Console platforms (Xbox/PS) do NOT support disk access — every persistence call must be guarded.
+
 ```cpp
 #ifndef PLATFORM_CONSOLE
 
@@ -358,6 +365,7 @@ class OVT_NewSaveData : EPF_ComponentSaveData
     {
         m_iValue = component.GetValue();
 
+        // Always re-create collections, never share references
         m_aData = new array<ref OVT_SomeData>();
         component.GetData(m_aData);
     }
@@ -371,6 +379,14 @@ class OVT_NewSaveData : EPF_ComponentSaveData
 
 #endif
 ```
+
+**Key rules:**
+- ✅ Use `ref` for all Managed class members in SaveData
+- ✅ Store `EntityID` instead of `IEntity` (entities don't survive save/load)
+- ✅ Re-create arrays/maps in `ReadFrom()` — `new array<>()` / `new map<>()`
+- ❌ Never store `IEntity`, `BaseWorld`, or runtime-only references
+- ⚠️ `#ifndef PLATFORM_CONSOLE` guards the entire SaveData block
+- ⚠️ Only 2 platform defines: `PLATFORM_CONSOLE` (Xbox+PS) and `PLATFORM_WINDOWS`
 
 ### 5. Add Networking (if needed)
 

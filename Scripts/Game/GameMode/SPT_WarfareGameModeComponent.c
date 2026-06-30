@@ -19,6 +19,7 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 
 	protected const float PLAYER_PRESENCE_CHECK_INTERVAL_S = 2.0;
 	protected const float STATE_UPDATE_INTERVAL_S = 1.0;
+	protected const ResourceName RESPAWN_POINT_PREFAB = "{E7F4D5562F48DDE4}Prefabs/MP/Spawning/SpawnPoint_Base.et";
 
 	//-----------------------------------------------------------------------
 	// ATRIBUTOS
@@ -47,6 +48,12 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 
 	[Attribute("1", desc: "Habilitar notificacoes HUD de transicoes de estado no cliente.")]
 	protected bool m_bEnableHUD;
+
+	[Attribute("1", desc: "Habilitar pontos de respawn Warfare no menu de deployment vanilla.")]
+	protected bool m_bEnableHQRespawn;
+
+	[Attribute("{F1C5F8E2EF1105F9}Prefabs/Compositions/Misc/SubCompositions/Tent_HQ_Camo_Cluttered_US_01.et", UIWidgets.ResourceNamePicker, desc: "Prefab puramente visual criado em cada local de respawn disponivel. Vazio desabilita apenas o ambiente.", params: "et")]
+	protected ResourceName m_rRespawnEnvironmentPrefab;
 
 	//-----------------------------------------------------------------------
 	// MEMBROS (SERVIDOR)
@@ -86,6 +93,12 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 
 	//! Evento publico disparado quando a campanha e vencida.
 	protected ref ScriptInvoker m_OnWarfareVictory = new ScriptInvoker();
+
+	//! Spawn points funcionais do menu vanilla, indexados pelo ID Warfare.
+	protected ref map<string, EntityID> m_mRespawnPointIds;
+
+	//! Prefabs ambientais dos locais de respawn, indexados pelo ID Warfare.
+	protected ref map<string, EntityID> m_mRespawnEnvironmentIds;
 
 	//-----------------------------------------------------------------------
 	// MEMBROS (CLIENTE - estado visual)
@@ -165,6 +178,8 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 		m_aHQIds = new array<string>();
 		m_aFrontlineIds = new array<string>();
 		m_aPendingStateUpdates = new array<ref SPT_WarfarePointStateSnapshot>();
+		m_mRespawnPointIds = new map<string, EntityID>();
+		m_mRespawnEnvironmentIds = new map<string, EntityID>();
 
 		Print("[SPT_Warfare] Inicializando componente de GameMode...");
 		GetGame().GetCallqueue().CallLater(InitializeWarfare, 2000, false);
@@ -172,6 +187,9 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 
 	void ~SPT_WarfareGameModeComponent()
 	{
+		if (Replication.IsServer())
+			CleanupRespawnPoints();
+
 		if (m_MapRenderer)
 		{
 			m_MapRenderer.Shutdown();
@@ -370,13 +388,17 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 		// 6. Subscreve aos eventos da guarnicao
 		SubscribeToGarrisonEvents();
 
-		// 7. Inicia loops de atualizacao
+		// 7. Registra HQs no deployment menu vanilla.
+		if (m_bEnableHQRespawn)
+			InitializeRespawnPoints();
+
+		// 8. Inicia loops de atualizacao
 		int presenceIntervalMs = Math.Round(PLAYER_PRESENCE_CHECK_INTERVAL_S * 1000);
 		int stateIntervalMs = Math.Round(STATE_UPDATE_INTERVAL_S * 1000);
 		GetGame().GetCallqueue().CallLater(CheckPlayerPresence, presenceIntervalMs, true);
 		GetGame().GetCallqueue().CallLater(UpdateWarfareState, stateIntervalMs, true);
 
-		// 8. Envia estado inicial para clientes
+		// 9. Envia estado inicial para clientes
 		BroadcastFullState();
 
 		Print(string.Format("[SPT_Warfare] Inicializacao concluida | pontos=%1 | HQs=%2 | tipo=%3",
@@ -885,6 +907,10 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 			if (frontlineIdx >= 0)
 				m_aFrontlineIds.Remove(frontlineIdx);
 		}
+
+		// Objetivos so viram respawn depois que a batalha foi estabilizada.
+		if (m_bEnableHQRespawn && newState == SPT_EWarfarePointState.CAPTURED)
+			EnsureRespawnPoint(pointId);
 	}
 
 	protected void EnqueueStateUpdate(string pointId, SPT_EWarfarePointState state)
@@ -1392,6 +1418,151 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 			SCR_HintManagerComponent hintMgr = SCR_HintManagerComponent.GetInstance();
 			if (hintMgr)
 				hintMgr.ShowCustom(message);
+		}
+	}
+
+	//-----------------------------------------------------------------------
+	// RESPAWN WARFARE
+	//-----------------------------------------------------------------------
+
+	//! Registra todos os HQs e eventuais pontos ja estabilizados.
+	protected void InitializeRespawnPoints()
+	{
+		if (!Replication.IsServer())
+			return;
+
+		CleanupRespawnPoints();
+
+		foreach (string pointId : m_aPointOrder)
+		{
+			SPT_WarfarePointData data = m_mPointsById.Get(pointId);
+			if (!data)
+				continue;
+
+			if (!data.m_bIsHQ && GetPointState(pointId) != SPT_EWarfarePointState.CAPTURED)
+				continue;
+
+			EnsureRespawnPoint(pointId);
+		}
+
+		Print(string.Format("[SPT_Warfare] Respawn: %1 local(is) disponivel(is) para a faccao %2.",
+			m_mRespawnPointIds.Count(), m_sPlayerFactionKey));
+	}
+
+	//! Cria uma opcao funcional no menu vanilla e seu ambiente visual.
+	protected bool EnsureRespawnPoint(string pointId)
+	{
+		if (!Replication.IsServer() || !m_mRespawnPointIds || m_mRespawnPointIds.Contains(pointId))
+			return false;
+
+		SPT_WarfarePointData data = m_mPointsById.Get(pointId);
+		if (!data)
+			return false;
+
+		Resource spawnPointResource = Resource.Load(RESPAWN_POINT_PREFAB);
+		if (!spawnPointResource)
+		{
+			Print(string.Format("[SPT_Warfare] Respawn: prefab funcional indisponivel para %1: %2",
+				pointId, RESPAWN_POINT_PREFAB), LogLevel.ERROR);
+			return false;
+		}
+
+		BaseWorld world = GetGame().GetWorld();
+		if (!world)
+			return false;
+
+		vector position = data.m_vCenter;
+		position[1] = world.GetSurfaceY(position[0], position[2]) + 0.1;
+
+		EntitySpawnParams spawnParams();
+		spawnParams.TransformMode = ETransformMode.WORLD;
+		spawnParams.Transform[3] = position;
+
+		IEntity spawnEntity = GetGame().SpawnEntityPrefab(spawnPointResource, world, spawnParams);
+		SCR_SpawnPoint spawnPoint = SCR_SpawnPoint.Cast(spawnEntity);
+		if (!spawnPoint)
+		{
+			if (spawnEntity)
+				SCR_EntityHelper.DeleteEntityAndChildren(spawnEntity);
+			Print(string.Format("[SPT_Warfare] Respawn: prefab funcional nao criou SCR_SpawnPoint para %1.",
+				pointId), LogLevel.ERROR);
+			return false;
+		}
+
+		float spawnRadius = Math.Clamp(data.m_fRadius * 0.25, 10.0, 30.0);
+		spawnPoint.SetFactionKey(m_sPlayerFactionKey);
+		spawnPoint.SetSpawnPointName(data.m_sDisplayName);
+		spawnPoint.SetSpawnRadius(spawnRadius);
+		spawnPoint.SetVisibleInDeployMapOnly(true);
+		spawnPoint.SetSpawnPointEnabled_S(true);
+		m_mRespawnPointIds.Set(pointId, spawnPoint.GetID());
+
+		CreateRespawnEnvironment(pointId, position);
+
+		Print(string.Format("[SPT_Warfare] Respawn disponivel | id=%1 | nome=%2 | faccao=%3 | posicao=%4 | raio=%5",
+			pointId, data.m_sDisplayName, m_sPlayerFactionKey, position, spawnRadius));
+		return true;
+	}
+
+	//! O ambiente e opcional e nunca interfere no spawn point funcional.
+	protected void CreateRespawnEnvironment(string pointId, vector position)
+	{
+		if (m_rRespawnEnvironmentPrefab.IsEmpty() || m_mRespawnEnvironmentIds.Contains(pointId))
+			return;
+
+		Resource environmentResource = Resource.Load(m_rRespawnEnvironmentPrefab);
+		if (!environmentResource)
+		{
+			Print(string.Format("[SPT_Warfare] Respawn: ambiente visual indisponivel para %1: %2",
+				pointId, m_rRespawnEnvironmentPrefab), LogLevel.WARNING);
+			return;
+		}
+
+		EntitySpawnParams environmentParams();
+		environmentParams.TransformMode = ETransformMode.WORLD;
+		environmentParams.Transform[3] = position;
+
+		IEntity environment = GetGame().SpawnEntityPrefab(
+			environmentResource,
+			GetGame().GetWorld(),
+			environmentParams);
+		if (!environment)
+		{
+			Print(string.Format("[SPT_Warfare] Respawn: falha ao criar ambiente visual em %1.",
+				pointId), LogLevel.WARNING);
+			return;
+		}
+
+		m_mRespawnEnvironmentIds.Set(pointId, environment.GetID());
+	}
+
+	//! Remove entidades dinamicas para evitar duplicatas em reinicializacoes.
+	protected void CleanupRespawnPoints()
+	{
+		BaseWorld world = GetGame().GetWorld();
+		if (!world)
+			return;
+
+		if (m_mRespawnPointIds)
+		{
+			foreach (string pointId, EntityID spawnPointId : m_mRespawnPointIds)
+			{
+				IEntity spawnPoint = world.FindEntityByID(spawnPointId);
+				if (spawnPoint)
+					SCR_EntityHelper.DeleteEntityAndChildren(spawnPoint);
+			}
+			m_mRespawnPointIds.Clear();
+		}
+
+		if (m_mRespawnEnvironmentIds)
+		{
+			foreach (string environmentPointId, EntityID environmentId : m_mRespawnEnvironmentIds)
+			{
+				IEntity environment = world.FindEntityByID(environmentId);
+				if (environment)
+					SCR_EntityHelper.DeleteEntityAndChildren(environment);
+			}
+			m_mRespawnEnvironmentIds.Clear();
 		}
 	}
 

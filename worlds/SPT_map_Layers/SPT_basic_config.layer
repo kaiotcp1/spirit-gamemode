@@ -72,34 +72,14 @@ SCR_BaseGameMode GameModeSF : "{ECEEDB2D3737204B}Prefabs/Systems/ScenarioFramewo
    m_bDefaultRequiresTool 0
   }
   SPT_WarfareGameModeComponent "{69BA190E4062431D}" {
+   m_rRespawnEnvironmentPrefab "{F1C5F8E2EF1105F9}Prefabs/Compositions/Misc/SubCompositions/Tent_HQ_Camo_Cluttered_US_01.et"
   }
   SPT_WorldGarrisonManagerComponent "{69B768A2ED652C20}" {
-   m_fSpawnDistance 600
-   m_iSpawnIntervalMs 2000
-   m_aBattleVehicles {
-    SPT_BattleVehicleConfig "{69BA1907C33E27EE}" {
-     m_rVehiclePrefab "{1FF144F8A209239D}Prefabs/Vehicles/Wheeled/M923A1/M923A1_arsenal.et"
-     m_rCrewGroupPrefab "{727C134094032B1F}Prefabs/Groups/BLUFOR/Group_US_Transport.et"
-    }
-   }
-   m_fBuildingSearchRadius 200
-   m_fPatrolRadius 200
-   m_fMinimumLocationSpacing 25
-   m_aCQBGroupPrefabs {
-    "{6B2A6EE5002D200F}Prefabs/Groups/BLUFOR/Group_US_EngineerTeam.et"
-    "{6B2A6EE5002D200F}Prefabs/Groups/BLUFOR/Group_US_EngineerTeam.et"
-    "{DE747BC9217D383C}Prefabs/Groups/BLUFOR/Group_US_Team_GL.et"
-   }
-   m_aPatrolGroupPrefabs {
-    "{DDF3799FA1387848}Prefabs/Groups/BLUFOR/Group_US_RifleSquad.et"
-    "{B7AB5D3F8A7ADAE4}Prefabs/Groups/BLUFOR/Group_US_PlatoonHQ.et"
-   }
-   m_sPatrolWaypointPrefab "{FFF9518F73279473}PrefabsEditable/Auto/AI/Waypoints/E_AIWaypoint_Move.et"
-   m_ePatrolFormation Column
-   m_ePatrolMovementType WALK
   }
  }
  coords 1891.659 11.326 1821.161
+ PlayerControllerPrefab "{A94F06F42D59C178}Prefabs/Characters/Core/SPT_PlayerController.et"
+ m_bAutoPlayerRespawn 0
 }
 ScriptedChatEntity ScriptedChatEntity : "{F69BC912AC8236F9}Prefabs/MP/ScriptedChatEntity.et" {
  coords 1891.659 12.065 1827.161

@@ -114,8 +114,10 @@ pela missao quando precisar de composicao, dificuldade ou faccao diferente.
 
 O HQ nao e registrado no `SPT_WorldGarrisonManagerComponent`. Portanto nao
 possui CQB, patrulha, cache, budget, batalha ou reforcos e e seguro por
-construcao. O componente dedicado fica preparado para recursos futuros de HQ,
-como respawn, arsenal e economia, sem misturar configuracao inimiga.
+construcao. Cada HQ registra um `SCR_SpawnPoint` aliado no deployment menu.
+Objetivos conquistados entram no mesmo menu somente depois de estabilizados.
+O ambiente visual desses locais e configuravel e nao participa da logica de
+respawn.
 
 ## Guarnicoes manuais
 
@@ -270,5 +272,4 @@ Avisos esperados:
 - recaptura inimiga;
 - persistencia entre reinicios;
 - economia/recompensas;
-- novos respawns de jogador;
 - encerramento automatico de sessao.
