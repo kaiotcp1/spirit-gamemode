@@ -30,7 +30,32 @@ class SPT_AIGarrisonHelper
 			areaRadius,
 			patrolWaypointPrefab,
 			patrolFormation,
-			patrolMovementType);
+			patrolMovementType,
+			true);
+	}
+
+	//! Envia reforcos de batalha para a area sem teleportar o grupo para o
+	//! anel de patrulha. O primeiro waypoint faz a aproximacao a partir da
+	//! posicao segura calculada pelo sistema de batalha.
+	static void ReinforceGroup(
+		SCR_AIGroup group,
+		vector areaCenter,
+		float areaRadius,
+		ResourceName patrolWaypointPrefab,
+		SCR_EAIGroupFormation patrolFormation,
+		EMovementType patrolMovementType)
+	{
+		if (!group)
+			return;
+
+		SPT_GarrisonManager.Get().Patrol(
+			group,
+			areaCenter,
+			areaRadius,
+			patrolWaypointPrefab,
+			patrolFormation,
+			patrolMovementType,
+			false);
 	}
 
 	// Encaminha um pedido de liberacao de grupo (desguarnecer) para o gerenciador central

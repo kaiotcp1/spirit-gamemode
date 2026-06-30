@@ -121,7 +121,8 @@ class SPT_GarrisonManager
 		float areaRadius,
 		ResourceName patrolWaypointPrefab,
 		SCR_EAIGroupFormation patrolFormation,
-		EMovementType patrolMovementType)
+		EMovementType patrolMovementType,
+		bool relocateAtStart)
 	{
 		if (!group)
 			return;
@@ -161,6 +162,7 @@ class SPT_GarrisonManager
 			pathing,
 			patrolFormation,
 			patrolMovementType,
+			relocateAtStart,
 			PATROL_NAV_MAX_POLLS);
 	}
 
@@ -421,6 +423,7 @@ class SPT_GarrisonManager
 		AIPathfindingComponent pathing,
 		SCR_EAIGroupFormation formation,
 		EMovementType movementType,
+		bool relocateAtStart,
 		int navPollsLeft)
 	{
 		if (!group)
@@ -448,6 +451,7 @@ class SPT_GarrisonManager
 				pathing,
 				formation,
 				movementType,
+				relocateAtStart,
 				navPollsLeft - 1);
 			return;
 		}
@@ -460,14 +464,25 @@ class SPT_GarrisonManager
 			return;
 		}
 
-		vector startPosition;
-		RelocatePatrolGroupToNavmeshStart(
-			group,
-			areaCenter,
-			areaRadius,
-			pathing,
-			areaPosts,
-			startPosition);
+		vector startPosition = GetPatrolGroupCenter(group, areaCenter);
+		if (relocateAtStart)
+		{
+			RelocatePatrolGroupToNavmeshStart(
+				group,
+				areaCenter,
+				areaRadius,
+				pathing,
+				areaPosts,
+				startPosition);
+		}
+		else
+		{
+			Print(string.Format("[SPT_Garrison] Reforco manteve posicao de spawn | grupo=%1 | origem=%2 | destino=%3 | distanciaCentro=%4m",
+				group,
+				startPosition,
+				areaCenter,
+				Math.Sqrt(HorizontalDistanceSq(startPosition, areaCenter))));
+		}
 
 		SPT_GarrisonInteriorPatrol patrol = new SPT_GarrisonInteriorPatrol(
 			group,

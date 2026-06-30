@@ -3204,13 +3204,26 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 				movementType = GetLocationBattleMovementType(location);
 			DebugLog(string.Format("Enviando grupo para patrulha | grupo=%1 | agentes=%2 | centroCidade=%3 | raio=%4",
 				group, agentCount, patrolCenter, GetLocationPatrolRadius(location)));
-			SPT_AIGarrisonHelper.PatrolGroup(
-				group,
-				patrolCenter,
-				GetLocationPatrolRadius(location),
-				GetLocationPatrolWaypointPrefab(location),
-				GetLocationPatrolFormation(location),
-				movementType);
+			if (battleGroup)
+			{
+				SPT_AIGarrisonHelper.ReinforceGroup(
+					group,
+					patrolCenter,
+					GetLocationPatrolRadius(location),
+					GetLocationPatrolWaypointPrefab(location),
+					GetLocationPatrolFormation(location),
+					movementType);
+			}
+			else
+			{
+				SPT_AIGarrisonHelper.PatrolGroup(
+					group,
+					patrolCenter,
+					GetLocationPatrolRadius(location),
+					GetLocationPatrolWaypointPrefab(location),
+					GetLocationPatrolFormation(location),
+					movementType);
+			}
 		}
 		else
 		{
