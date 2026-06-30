@@ -513,6 +513,9 @@ class SPT_GarrisonManager
 		bool hasFallback;
 		foreach (SPT_GarrisonPost post : patrolPosts)
 		{
+			if (IsPatrolPositionInWater(group.GetWorld(), post.m_Pos))
+				continue;
+
 			float originDistanceSq = HorizontalDistanceSq(post.m_Pos, originalCenter);
 			float nearestPatrolSq = 1000000000.0;
 			bool hasOtherPatrol;
@@ -584,6 +587,7 @@ class SPT_GarrisonManager
 			vector navPosition;
 			if (!FindPatrolMemberNavPosition(
 				pathing,
+				group.GetWorld(),
 				outStartPosition,
 				index,
 				memberSpacing,
@@ -640,6 +644,7 @@ class SPT_GarrisonManager
 
 	protected bool FindPatrolMemberNavPosition(
 		notnull AIPathfindingComponent pathing,
+		notnull BaseWorld world,
 		vector groupCenter,
 		int memberIndex,
 		float memberSpacing,
@@ -659,6 +664,8 @@ class SPT_GarrisonManager
 			vector navPosition;
 			if (!pathing.GetClosestPositionOnNavmesh(candidate, "3 3 3", navPosition))
 				continue;
+			if (IsPatrolPositionInWater(world, navPosition))
+				continue;
 
 			bool overlaps;
 			foreach (vector occupiedPosition : occupiedPositions)
@@ -676,7 +683,9 @@ class SPT_GarrisonManager
 			return true;
 		}
 
-		return pathing.GetClosestPositionOnNavmesh(groupCenter, "4 3 4", outPosition);
+		if (!pathing.GetClosestPositionOnNavmesh(groupCenter, "4 3 4", outPosition))
+			return false;
+		return !IsPatrolPositionInWater(world, outPosition);
 	}
 
 	protected float GetPatrolGroupClearance(float areaRadius)
@@ -867,6 +876,8 @@ class SPT_GarrisonManager
 		{
 			if (postIndex == patrol.m_iLastPost)
 				continue;
+			if (IsPatrolPositionInWater(patrol.m_Group.GetWorld(), post.m_Pos))
+				continue;
 
 			float travelDistanceSq = HorizontalDistanceSq(post.m_Pos, travelOrigin);
 			if (travelDistanceSq > fallbackTravelSq)
@@ -1002,6 +1013,27 @@ class SPT_GarrisonManager
 			Math.Sqrt(HorizontalDistanceSq(travelOrigin, patrol.m_Posts[nextPost].m_Pos)),
 			minimumTravel,
 			usedFallback));
+	}
+
+	protected bool IsPatrolPositionInWater(BaseWorld world, vector position)
+	{
+		if (!world)
+			return true;
+
+		vector waterSurfacePoint;
+		vector waterTransform[4];
+		vector waterExtents;
+		EWaterSurfaceType waterType;
+		if (!ChimeraWorldUtils.TryGetWaterSurface(
+			world,
+			position,
+			waterSurfacePoint,
+			waterType,
+			waterTransform,
+			waterExtents))
+			return false;
+
+		return waterSurfacePoint[1] >= position[1] - 0.25;
 	}
 
 	protected bool IsGroupInteriorPatrolling(SCR_AIGroup group)
