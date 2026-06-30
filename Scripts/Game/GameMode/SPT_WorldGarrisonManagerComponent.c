@@ -330,7 +330,11 @@ class SPT_WorldGarrisonManagerComponentClass : ScriptComponentClass
 class SPT_WorldGarrisonManagerComponent : ScriptComponent
 {
 	protected const float PATROL_SPAWN_BUILDING_CLEARANCE_M = 30.0;
-	protected const float PATROL_SPAWN_GROUP_CLEARANCE_M = 40.0;
+	protected const float PATROL_SPAWN_GROUP_MIN_CLEARANCE_M = 40.0;
+	protected const float PATROL_SPAWN_GROUP_RADIUS_FACTOR = 0.30;
+	protected const float PATROL_MEMBER_MIN_SPACING_M = 3.0;
+	protected const float PATROL_MEMBER_MAX_SPACING_M = 5.0;
+	protected const float PATROL_MEMBER_RADIUS_FACTOR = 0.01;
 	protected const int PATROL_SPAWN_RING_COUNT = 4;
 	protected const int PATROL_SPAWN_SAMPLES_PER_RING = 24;
 	protected const int BATTLE_UPDATE_INTERVAL_MS = 5000;
@@ -2325,7 +2329,17 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			if (!cached.m_rVehiclePrefab.IsEmpty())
 				group = SpawnCachedBattleVehicle(location, cached, spawnedUnits);
 			else
-				group = SpawnGroupWithMembers(groupResource, cached.m_vPosition, cached.m_aAliveMembers, spawnedUnits);
+			{
+				float cachedMemberSpacing;
+				if (!isCQB)
+					cachedMemberSpacing = GetPatrolMemberSpacing(GetLocationPatrolRadius(location));
+				group = SpawnGroupWithMembers(
+					groupResource,
+					cached.m_vPosition,
+					cached.m_aAliveMembers,
+					cachedMemberSpacing,
+					spawnedUnits);
+			}
 			if (!group)
 			{
 				Print(string.Format("[SPT_WorldGarrison] Falha ao spawnar grupo cacheado indice %1: %2",
@@ -2609,10 +2623,18 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		SCR_AIGroup group;
 		int spawnedUnits;
 		int groupCapacity;
+		float patrolMemberSpacing;
+		if (!req.m_bIsCQB)
+			patrolMemberSpacing = GetPatrolMemberSpacing(GetLocationPatrolRadius(location));
 
 		if (req.m_bIsFromCache && req.m_aAliveMembers)
 		{
-			group = SpawnGroupWithMembers(groupResource, req.m_vSpawnPosition, req.m_aAliveMembers, spawnedUnits);
+			group = SpawnGroupWithMembers(
+				groupResource,
+				req.m_vSpawnPosition,
+				req.m_aAliveMembers,
+				patrolMemberSpacing,
+				spawnedUnits);
 			groupCapacity = spawnedUnits;
 		}
 		else
@@ -2627,7 +2649,13 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			}
 			if (!location.HasUnlimitedBudget())
 				maxUnits = Math.Min(maxUnits, location.m_iBudgetRemaining);
-			group = SpawnGroup(groupResource, req.m_vSpawnPosition, spawnedUnits, groupCapacity, maxUnits);
+			group = SpawnGroup(
+				groupResource,
+				req.m_vSpawnPosition,
+				patrolMemberSpacing,
+				spawnedUnits,
+				groupCapacity,
+				maxUnits);
 		}
 
 		if (!group)
@@ -2703,6 +2731,7 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 	protected SCR_AIGroup SpawnGroup(
 		Resource groupResource,
 		vector buildingCenter,
+		float memberSpacing,
 		out int spawnedUnits,
 		out int groupCapacity,
 		int maxUnits)
@@ -2742,7 +2771,7 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		}
 
 		group.SetDeleteWhenEmpty(false);
-		spawnedUnits = SpawnGroupMembersDirect(group, buildingCenter, maxUnits);
+		spawnedUnits = SpawnGroupMembersDirect(group, buildingCenter, memberSpacing, maxUnits);
 		if (spawnedUnits > 0)
 			group.SetDeleteWhenEmpty(true);
 		DebugLog(string.Format("Membros diretos finalizados | grupo=%1 | solicitados=%2 | criados=%3 | agentesAtuais=%4",
@@ -2753,7 +2782,12 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 	//! Spawna um grupo usando uma lista pre-definida de prefabs de membros em vez
 	//! dos slots do template. Usado ao restaurar um grupo cacheado (streamed-out)
 	//! para que apenas os membros que ainda estavam vivos reaparecam.
-	protected SCR_AIGroup SpawnGroupWithMembers(Resource groupResource, vector spawnCenter, notnull array<ResourceName> memberPrefabs, out int spawnedUnits)
+	protected SCR_AIGroup SpawnGroupWithMembers(
+		Resource groupResource,
+		vector spawnCenter,
+		notnull array<ResourceName> memberPrefabs,
+		float memberSpacing,
+		out int spawnedUnits)
 	{
 		spawnedUnits = 0;
 
@@ -2783,7 +2817,7 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		}
 
 		group.SetDeleteWhenEmpty(false);
-		spawnedUnits = SpawnGroupMembersFromList(group, spawnCenter, memberPrefabs);
+		spawnedUnits = SpawnGroupMembersFromList(group, spawnCenter, memberPrefabs, memberSpacing);
 		if (spawnedUnits > 0)
 			group.SetDeleteWhenEmpty(true);
 
@@ -2792,7 +2826,11 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		return group;
 	}
 
-	protected int SpawnGroupMembersFromList(notnull SCR_AIGroup group, vector center, notnull array<ResourceName> memberPrefabs)
+	protected int SpawnGroupMembersFromList(
+		notnull SCR_AIGroup group,
+		vector center,
+		notnull array<ResourceName> memberPrefabs,
+		float memberSpacing)
 	{
 		int spawnedCount;
 		int count = memberPrefabs.Count();
@@ -2807,10 +2845,7 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 				continue;
 			}
 
-			float angle = i * 137.5 * Math.PI / 180.0;
-			int radiusStep = i % 3;
-			float radius = 1.5 + 0.5 * radiusStep;
-			vector memberPosition = center + Vector(Math.Cos(angle) * radius, 0, Math.Sin(angle) * radius);
+			vector memberPosition = GetMemberSpawnPosition(center, i, memberSpacing);
 			memberPosition[1] = GetGame().GetWorld().GetSurfaceY(memberPosition[0], memberPosition[2]) + 0.2;
 
 			EntitySpawnParams memberParams();
@@ -2845,7 +2880,11 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		return spawnedCount;
 	}
 
-	protected int SpawnGroupMembersDirect(notnull SCR_AIGroup group, vector center, int maxUnits)
+	protected int SpawnGroupMembersDirect(
+		notnull SCR_AIGroup group,
+		vector center,
+		float memberSpacing,
+		int maxUnits)
 	{
 		int spawnedCount;
 		int slotCount = group.m_aUnitPrefabSlots.Count();
@@ -2862,10 +2901,7 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 				continue;
 			}
 
-			float angle = i * 137.5 * Math.PI / 180.0;
-			int radiusStep = i % 3;
-			float radius = 1.5 + 0.5 * radiusStep;
-			vector memberPosition = center + Vector(Math.Cos(angle) * radius, 0, Math.Sin(angle) * radius);
+			vector memberPosition = GetMemberSpawnPosition(center, i, memberSpacing);
 			memberPosition[1] = GetGame().GetWorld().GetSurfaceY(memberPosition[0], memberPosition[2]) + 0.2;
 
 			EntitySpawnParams memberParams();
@@ -2898,6 +2934,31 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		}
 
 		return spawnedCount;
+	}
+
+	protected vector GetMemberSpawnPosition(vector center, int index, float patrolSpacing)
+	{
+		float angle = index * 137.5 * Math.PI / 180.0;
+		float radius;
+		if (patrolSpacing > 0)
+		{
+			radius = patrolSpacing * Math.Sqrt(index + 1);
+		}
+		else
+		{
+			int radiusStep = index % 3;
+			radius = 1.5 + 0.5 * radiusStep;
+		}
+
+		return center + Vector(Math.Cos(angle) * radius, 0, Math.Sin(angle) * radius);
+	}
+
+	protected float GetPatrolMemberSpacing(float patrolRadius)
+	{
+		return Math.Clamp(
+			patrolRadius * PATROL_MEMBER_RADIUS_FACTOR,
+			PATROL_MEMBER_MIN_SPACING_M,
+			PATROL_MEMBER_MAX_SPACING_M);
 	}
 
 	protected void WaitForGroupMembers(
@@ -3313,16 +3374,25 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		out vector outPosition)
 	{
 		float buildingClearanceSq = PATROL_SPAWN_BUILDING_CLEARANCE_M * PATROL_SPAWN_BUILDING_CLEARANCE_M;
-		float groupClearanceSq = PATROL_SPAWN_GROUP_CLEARANCE_M * PATROL_SPAWN_GROUP_CLEARANCE_M;
-		float bestScore = -1;
-		float bestBuildingDistanceSq;
+		float targetGroupClearance = Math.Min(
+			patrolRadius,
+			Math.Max(
+				PATROL_SPAWN_GROUP_MIN_CLEARANCE_M,
+				patrolRadius * PATROL_SPAWN_GROUP_RADIUS_FACTOR));
+		float targetGroupClearanceSq = targetGroupClearance * targetGroupClearance;
+		float bestPreferredScore = -1;
+		float bestPreferredBuildingDistanceSq;
+		vector bestPreferredPosition;
+		float bestFallbackScore = -1;
+		float bestFallbackBuildingDistanceSq;
+		vector bestFallbackPosition;
 
 		for (int ring = 1; ring <= PATROL_SPAWN_RING_COUNT; ring++)
 		{
 			float distance = patrolRadius * ring / PATROL_SPAWN_RING_COUNT;
 			for (int sample = 0; sample < PATROL_SPAWN_SAMPLES_PER_RING; sample++)
 			{
-				float angle = (sample + sequence * 5) * 2.0 * Math.PI / PATROL_SPAWN_SAMPLES_PER_RING;
+				float angle = (sample + sequence * 0.37) * 2.0 * Math.PI / PATROL_SPAWN_SAMPLES_PER_RING;
 				vector candidate = cityCenter + Vector(
 					Math.Cos(angle) * distance,
 					0,
@@ -3335,6 +3405,8 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 					if (buildingDistanceSq < nearestBuildingSq)
 						nearestBuildingSq = buildingDistanceSq;
 				}
+				if (buildingCenters.IsEmpty())
+					nearestBuildingSq = HorizontalDistanceSq(candidate, cityCenter);
 				if (nearestBuildingSq < buildingClearanceSq)
 					continue;
 
@@ -3345,27 +3417,66 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 					if (patrolDistanceSq < nearestPatrolSq)
 						nearestPatrolSq = patrolDistanceSq;
 				}
-				if (nearestPatrolSq < groupClearanceSq)
-					continue;
 
 				float score = nearestBuildingSq;
-				if (!occupiedPatrolSpawns.IsEmpty() && nearestPatrolSq < score)
+				if (!occupiedPatrolSpawns.IsEmpty())
 					score = nearestPatrolSq;
-				if (score <= bestScore)
+
+				if (score > bestFallbackScore ||
+					(score == bestFallbackScore && nearestBuildingSq > bestFallbackBuildingDistanceSq))
+				{
+					bestFallbackScore = score;
+					bestFallbackBuildingDistanceSq = nearestBuildingSq;
+					bestFallbackPosition = candidate;
+				}
+
+				if (!occupiedPatrolSpawns.IsEmpty() && nearestPatrolSq < targetGroupClearanceSq)
 					continue;
 
-				bestScore = score;
-				bestBuildingDistanceSq = nearestBuildingSq;
-				outPosition = candidate;
+				if (score > bestPreferredScore ||
+					(score == bestPreferredScore && nearestBuildingSq > bestPreferredBuildingDistanceSq))
+				{
+					bestPreferredScore = score;
+					bestPreferredBuildingDistanceSq = nearestBuildingSq;
+					bestPreferredPosition = candidate;
+				}
 			}
 		}
 
-		if (bestScore < 0)
+		bool usedFallback;
+		float selectedBuildingDistanceSq;
+		float selectedGroupDistanceSq;
+		if (bestPreferredScore >= 0)
+		{
+			outPosition = bestPreferredPosition;
+			selectedBuildingDistanceSq = bestPreferredBuildingDistanceSq;
+			selectedGroupDistanceSq = bestPreferredScore;
+		}
+		else if (bestFallbackScore >= 0)
+		{
+			usedFallback = true;
+			outPosition = bestFallbackPosition;
+			selectedBuildingDistanceSq = bestFallbackBuildingDistanceSq;
+			selectedGroupDistanceSq = bestFallbackScore;
+		}
+		else
+		{
 			return false;
+		}
 
 		outPosition[1] = GetGame().GetWorld().GetSurfaceY(outPosition[0], outPosition[2]) + 0.2;
-		DebugLog(string.Format("Spawn externo de patrulha selecionado | posicao=%1 | distanciaConstrucao=%2m | sequencia=%3",
-			outPosition, Math.Sqrt(bestBuildingDistanceSq), sequence));
+		if (usedFallback && !occupiedPatrolSpawns.IsEmpty())
+		{
+			Print(string.Format("[SPT_WorldGarrison] Espaco limitado para patrulha; usando maior separacao disponivel | posicao=%1 | separacao=%2m | alvo=%3m",
+				outPosition, Math.Sqrt(selectedGroupDistanceSq), targetGroupClearance), LogLevel.WARNING);
+		}
+		DebugLog(string.Format("Spawn externo de patrulha selecionado | posicao=%1 | distanciaConstrucao=%2m | distanciaGrupo=%3m | alvoGrupo=%4m | fallback=%5 | sequencia=%6",
+			outPosition,
+			Math.Sqrt(selectedBuildingDistanceSq),
+			Math.Sqrt(selectedGroupDistanceSq),
+			targetGroupClearance,
+			usedFallback,
+			sequence));
 		return true;
 	}
 

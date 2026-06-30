@@ -28,17 +28,24 @@ class SPT_GarrisonInteriorPatrol
 	AIWaypoint m_Waypoint;
 	int m_iLastPost = -1;
 	int m_iWaitPolls;
+	float m_fAreaRadius;
+	vector m_vStartPosition;
+	vector m_vLastDestination;
+	bool m_bHasLastDestination;
+	ref array<int> m_aRecentPosts = {};
 	SCR_EAIGroupFormation m_eFormation;
 	EMovementType m_eMovementType;
 
 	void SPT_GarrisonInteriorPatrol(
 		SCR_AIGroup group,
 		vector buildingCenter,
+		float areaRadius,
 		SCR_EAIGroupFormation formation,
 		EMovementType movementType)
 	{
 		m_Group = group;
 		m_BuildingCenter = buildingCenter;
+		m_fAreaRadius = areaRadius;
 		m_eFormation = formation;
 		m_eMovementType = movementType;
 	}
@@ -61,6 +68,15 @@ class SPT_GarrisonManager
 	protected const int   PATROL_SAMPLES_PER_RING = 12;
 	protected const int   PATROL_NAV_POLL_MS = 500;
 	protected const int   PATROL_NAV_MAX_POLLS = 20;
+	protected const float PATROL_GROUP_MIN_CLEARANCE_M = 40.0;
+	protected const float PATROL_GROUP_RADIUS_FACTOR = 0.30;
+	protected const float PATROL_MEMBER_MIN_SPACING_M = 3.0;
+	protected const float PATROL_MEMBER_MAX_SPACING_M = 5.0;
+	protected const float PATROL_MEMBER_RADIUS_FACTOR = 0.01;
+	protected const float PATROL_WAYPOINT_MIN_TRAVEL_M = 50.0;
+	protected const float PATROL_WAYPOINT_RADIUS_FACTOR = 0.50;
+	protected const int   PATROL_RECENT_POST_LIMIT = 3;
+	protected const int   PATROL_TOP_CANDIDATE_COUNT = 3;
 	protected const ResourceName DEFAULT_PATROL_WAYPOINT_PREFAB = "{FFF9518F73279473}PrefabsEditable/Auto/AI/Waypoints/E_AIWaypoint_Move.et";
 
 	protected static ref SPT_GarrisonManager s_Instance;
@@ -444,15 +460,25 @@ class SPT_GarrisonManager
 			return;
 		}
 
+		vector startPosition;
+		RelocatePatrolGroupToNavmeshStart(
+			group,
+			areaCenter,
+			areaRadius,
+			pathing,
+			areaPosts,
+			startPosition);
+
 		SPT_GarrisonInteriorPatrol patrol = new SPT_GarrisonInteriorPatrol(
 			group,
 			areaCenter,
+			areaRadius,
 			formation,
 			movementType);
+		patrol.m_vStartPosition = startPosition;
 		foreach (SPT_GarrisonPost post : areaPosts)
 			patrol.m_Posts.Insert(new SPT_GarrisonPost(post.m_Pos, post.m_Facing));
 
-		RelocatePatrolGroupToNavmeshStart(group, areaCenter, areaRadius, pathing, areaPosts);
 		ApplyPatrolMovementSettings(group, formation, movementType);
 
 		patrol.m_iWaitPolls = Math.RandomInt(PATROL_WAIT_MIN_POLLS, PATROL_WAIT_MAX_POLLS + 1);
@@ -472,33 +498,79 @@ class SPT_GarrisonManager
 		vector areaCenter,
 		float areaRadius,
 		notnull AIPathfindingComponent pathing,
-		notnull array<ref SPT_GarrisonPost> patrolPosts)
+		notnull array<ref SPT_GarrisonPost> patrolPosts,
+		out vector outStartPosition)
 	{
-		array<vector> buildingCenters = {};
-		SPT_GarrisonDetector.CollectBuildingCenters(group.GetWorld(), areaCenter, areaRadius, buildingCenters);
-
-		vector startPosition;
-		float bestBuildingDistanceSq = -1;
+		vector originalCenter = GetPatrolGroupCenter(group, areaCenter);
+		float targetGroupClearance = GetPatrolGroupClearance(areaRadius);
+		float targetGroupClearanceSq = targetGroupClearance * targetGroupClearance;
+		float bestPreferredOriginDistanceSq = 1000000000.0;
+		float bestFallbackClearanceSq = -1;
+		float bestFallbackOriginDistanceSq = 1000000000.0;
+		vector preferredPosition;
+		vector fallbackPosition;
+		bool hasPreferred;
+		bool hasFallback;
 		foreach (SPT_GarrisonPost post : patrolPosts)
 		{
-			float nearestBuildingSq = 1000000000.0;
-			foreach (vector buildingCenter : buildingCenters)
+			float originDistanceSq = HorizontalDistanceSq(post.m_Pos, originalCenter);
+			float nearestPatrolSq = 1000000000.0;
+			bool hasOtherPatrol;
+			foreach (SPT_GarrisonInteriorPatrol existingPatrol : m_aInteriorPatrols)
 			{
-				float distanceSq = HorizontalDistanceSq(post.m_Pos, buildingCenter);
-				if (distanceSq < nearestBuildingSq)
-					nearestBuildingSq = distanceSq;
+				if (!existingPatrol || !existingPatrol.m_Group)
+					continue;
+				if (HorizontalDistanceSq(existingPatrol.m_BuildingCenter, areaCenter) > 1.0)
+					continue;
+
+				hasOtherPatrol = true;
+				float patrolDistanceSq = HorizontalDistanceSq(post.m_Pos, existingPatrol.m_vStartPosition);
+				if (patrolDistanceSq < nearestPatrolSq)
+					nearestPatrolSq = patrolDistanceSq;
 			}
-			if (nearestBuildingSq <= bestBuildingDistanceSq)
+
+			if (!hasOtherPatrol)
+				nearestPatrolSq = targetGroupClearanceSq;
+
+			if (nearestPatrolSq > bestFallbackClearanceSq ||
+				(nearestPatrolSq == bestFallbackClearanceSq && originDistanceSq < bestFallbackOriginDistanceSq))
+			{
+				hasFallback = true;
+				bestFallbackClearanceSq = nearestPatrolSq;
+				bestFallbackOriginDistanceSq = originDistanceSq;
+				fallbackPosition = post.m_Pos;
+			}
+
+			if (nearestPatrolSq < targetGroupClearanceSq)
 				continue;
-			bestBuildingDistanceSq = nearestBuildingSq;
-			startPosition = post.m_Pos;
+			if (originDistanceSq >= bestPreferredOriginDistanceSq)
+				continue;
+
+			hasPreferred = true;
+			bestPreferredOriginDistanceSq = originDistanceSq;
+			preferredPosition = post.m_Pos;
 		}
 
-		if (bestBuildingDistanceSq < 0)
+		bool usedFallback;
+		if (hasPreferred)
+		{
+			outStartPosition = preferredPosition;
+		}
+		else if (hasFallback)
+		{
+			usedFallback = true;
+			outStartPosition = fallbackPosition;
+		}
+		else
+		{
+			outStartPosition = originalCenter;
 			return false;
+		}
 
 		array<AIAgent> agents = {};
 		group.GetAgents(agents);
+		array<vector> occupiedMemberPositions = {};
+		float memberSpacing = GetPatrolMemberSpacing(areaRadius);
 		int relocated;
 		foreach (int index, AIAgent agent : agents)
 		{
@@ -509,15 +581,18 @@ class SPT_GarrisonManager
 			if (!gameEntity)
 				continue;
 
-			float angle = index * 137.5 * Math.PI / 180.0;
-			float distance = 1.5 + index * 0.35;
-			vector candidate = startPosition + Vector(
-				Math.Cos(angle) * distance,
-				0,
-				Math.Sin(angle) * distance);
 			vector navPosition;
-			if (!pathing.GetClosestPositionOnNavmesh(candidate, "4 3 4", navPosition))
-				navPosition = startPosition;
+			if (!FindPatrolMemberNavPosition(
+				pathing,
+				outStartPosition,
+				index,
+				memberSpacing,
+				occupiedMemberPositions,
+				navPosition))
+			{
+				navPosition = outStartPosition;
+			}
+			occupiedMemberPositions.Insert(navPosition);
 
 			vector transform[4];
 			entity.GetWorldTransform(transform);
@@ -526,9 +601,99 @@ class SPT_GarrisonManager
 			relocated++;
 		}
 
-		Print(string.Format("[SPT_Garrison] Grupo de patrulha reposicionado no navmesh externo | grupo=%1 | soldados=%2 | posicao=%3 | distanciaConstrucao=%4m",
-			group, relocated, startPosition, Math.Sqrt(bestBuildingDistanceSq)));
+		if (usedFallback)
+		{
+			Print(string.Format("[SPT_Garrison] Espaco de navmesh limitado; inicio de patrulha usa maior separacao disponivel | grupo=%1 | separacao=%2m | alvo=%3m",
+				group, Math.Sqrt(bestFallbackClearanceSq), targetGroupClearance), LogLevel.WARNING);
+		}
+		Print(string.Format("[SPT_Garrison] Grupo de patrulha reposicionado no navmesh externo | grupo=%1 | soldados=%2 | origem=%3 | destino=%4 | distanciaOrigem=%5m | espacamentoMembros=%6m",
+			group,
+			relocated,
+			originalCenter,
+			outStartPosition,
+			Math.Sqrt(HorizontalDistanceSq(originalCenter, outStartPosition)),
+			memberSpacing));
 		return relocated > 0;
+	}
+
+	protected vector GetPatrolGroupCenter(notnull SCR_AIGroup group, vector fallbackCenter)
+	{
+		array<AIAgent> agents = {};
+		group.GetAgents(agents);
+		vector center;
+		int positionedAgents;
+		foreach (AIAgent agent : agents)
+		{
+			if (!agent)
+				continue;
+			IEntity entity = agent.GetControlledEntity();
+			if (!entity)
+				continue;
+			center = center + entity.GetOrigin();
+			positionedAgents++;
+		}
+
+		if (positionedAgents < 1)
+			return fallbackCenter;
+		return center * (1.0 / positionedAgents);
+	}
+
+	protected bool FindPatrolMemberNavPosition(
+		notnull AIPathfindingComponent pathing,
+		vector groupCenter,
+		int memberIndex,
+		float memberSpacing,
+		notnull array<vector> occupiedPositions,
+		out vector outPosition)
+	{
+		float minimumMemberDistance = memberSpacing * 0.75;
+		float minimumMemberDistanceSq = minimumMemberDistance * minimumMemberDistance;
+		for (int attempt = 0; attempt < 6; attempt++)
+		{
+			float angle = (memberIndex * 137.5 + attempt * 47.0) * Math.PI / 180.0;
+			float distance = memberSpacing * Math.Sqrt(memberIndex + attempt + 1);
+			vector candidate = groupCenter + Vector(
+				Math.Cos(angle) * distance,
+				0,
+				Math.Sin(angle) * distance);
+			vector navPosition;
+			if (!pathing.GetClosestPositionOnNavmesh(candidate, "3 3 3", navPosition))
+				continue;
+
+			bool overlaps;
+			foreach (vector occupiedPosition : occupiedPositions)
+			{
+				if (HorizontalDistanceSq(navPosition, occupiedPosition) < minimumMemberDistanceSq)
+				{
+					overlaps = true;
+					break;
+				}
+			}
+			if (overlaps)
+				continue;
+
+			outPosition = navPosition;
+			return true;
+		}
+
+		return pathing.GetClosestPositionOnNavmesh(groupCenter, "4 3 4", outPosition);
+	}
+
+	protected float GetPatrolGroupClearance(float areaRadius)
+	{
+		return Math.Min(
+			areaRadius,
+			Math.Max(
+				PATROL_GROUP_MIN_CLEARANCE_M,
+				areaRadius * PATROL_GROUP_RADIUS_FACTOR));
+	}
+
+	protected float GetPatrolMemberSpacing(float areaRadius)
+	{
+		return Math.Clamp(
+			areaRadius * PATROL_MEMBER_RADIUS_FACTOR,
+			PATROL_MEMBER_MIN_SPACING_M,
+			PATROL_MEMBER_MAX_SPACING_M);
 	}
 
 	protected void RequestPatrolNavmeshTiles(
@@ -681,9 +846,109 @@ class SPT_GarrisonManager
 		if (!patrol || patrol.m_Posts.Count() < 2)
 			return;
 
-		int nextPost = Math.RandomInt(0, patrol.m_Posts.Count());
-		if (nextPost == patrol.m_iLastPost)
-			nextPost = (nextPost + 1) % patrol.m_Posts.Count();
+		vector travelOrigin = patrol.m_vStartPosition;
+		if (patrol.m_bHasLastDestination)
+			travelOrigin = patrol.m_vLastDestination;
+
+		float minimumTravel = Math.Min(
+			patrol.m_fAreaRadius,
+			Math.Max(
+				PATROL_WAYPOINT_MIN_TRAVEL_M,
+				patrol.m_fAreaRadius * PATROL_WAYPOINT_RADIUS_FACTOR));
+		float minimumTravelSq = minimumTravel * minimumTravel;
+		float concurrentClearance = GetPatrolGroupClearance(patrol.m_fAreaRadius);
+		float concurrentClearanceSq = concurrentClearance * concurrentClearance;
+
+		array<int> preferredPosts = {};
+		array<float> preferredScores = {};
+		int fallbackPost = -1;
+		float fallbackTravelSq = -1;
+		foreach (int postIndex, SPT_GarrisonPost post : patrol.m_Posts)
+		{
+			if (postIndex == patrol.m_iLastPost)
+				continue;
+
+			float travelDistanceSq = HorizontalDistanceSq(post.m_Pos, travelOrigin);
+			if (travelDistanceSq > fallbackTravelSq)
+			{
+				fallbackTravelSq = travelDistanceSq;
+				fallbackPost = postIndex;
+			}
+			if (travelDistanceSq < minimumTravelSq)
+				continue;
+
+			float score = travelDistanceSq;
+			foreach (int recentPostIndex : patrol.m_aRecentPosts)
+			{
+				if (recentPostIndex < 0 || recentPostIndex >= patrol.m_Posts.Count())
+					continue;
+				float recentDistanceSq = HorizontalDistanceSq(
+					post.m_Pos,
+					patrol.m_Posts[recentPostIndex].m_Pos);
+				if (recentDistanceSq < score)
+					score = recentDistanceSq;
+			}
+
+			bool conflictsWithActiveWaypoint;
+			foreach (SPT_GarrisonInteriorPatrol otherPatrol : m_aInteriorPatrols)
+			{
+				if (!otherPatrol || otherPatrol == patrol || !otherPatrol.m_Group)
+					continue;
+				if (!otherPatrol.m_Waypoint || !otherPatrol.m_bHasLastDestination)
+					continue;
+				if (HorizontalDistanceSq(otherPatrol.m_BuildingCenter, patrol.m_BuildingCenter) > 1.0)
+					continue;
+
+				float otherWaypointDistanceSq = HorizontalDistanceSq(
+					post.m_Pos,
+					otherPatrol.m_vLastDestination);
+				if (otherWaypointDistanceSq < concurrentClearanceSq)
+					conflictsWithActiveWaypoint = true;
+				if (otherWaypointDistanceSq < score)
+					score = otherWaypointDistanceSq;
+			}
+			if (conflictsWithActiveWaypoint)
+				continue;
+
+			preferredPosts.Insert(postIndex);
+			preferredScores.Insert(score);
+		}
+
+		bool usedFallback;
+		int nextPost = fallbackPost;
+		if (!preferredPosts.IsEmpty())
+		{
+			array<int> topPosts = {};
+			int topCount = Math.Min(PATROL_TOP_CANDIDATE_COUNT, preferredPosts.Count());
+			for (int topIndex = 0; topIndex < topCount; topIndex++)
+			{
+				int bestArrayIndex = -1;
+				float bestScore = -1;
+				foreach (int scoreIndex, float candidateScore : preferredScores)
+				{
+					if (candidateScore <= bestScore)
+						continue;
+					bestScore = candidateScore;
+					bestArrayIndex = scoreIndex;
+				}
+
+				if (bestArrayIndex < 0)
+					break;
+				topPosts.Insert(preferredPosts[bestArrayIndex]);
+				preferredPosts.Remove(bestArrayIndex);
+				preferredScores.Remove(bestArrayIndex);
+			}
+
+			if (!topPosts.IsEmpty())
+				nextPost = topPosts[Math.RandomInt(0, topPosts.Count())];
+		}
+		else
+		{
+			usedFallback = true;
+		}
+
+		if (nextPost < 0)
+			return;
 
 		if (!m_bPatrolWaypointLoadAttempted)
 		{
@@ -718,10 +983,25 @@ class SPT_GarrisonManager
 		waypoint.SetCompletionRadius(1.0);
 		waypoint.SetCompletionYPrecision(1.5);
 		patrol.m_iLastPost = nextPost;
+		patrol.m_vLastDestination = patrol.m_Posts[nextPost].m_Pos;
+		patrol.m_bHasLastDestination = true;
+		patrol.m_aRecentPosts.Insert(nextPost);
+		while (patrol.m_aRecentPosts.Count() > PATROL_RECENT_POST_LIMIT)
+			patrol.m_aRecentPosts.Remove(0);
 		patrol.m_Waypoint = waypoint;
 		patrol.m_Group.AddWaypoint(waypoint);
-		Print(string.Format("[SPT_Garrison] Waypoint de patrulha adicionado | grupo=%1 | destino=%2 | indice=%3",
-			patrol.m_Group, patrol.m_Posts[nextPost].m_Pos, nextPost));
+		if (usedFallback)
+		{
+			Print(string.Format("[SPT_Garrison] Distancia ideal de waypoint indisponivel; usando ponto mais distante | grupo=%1 | distancia=%2m | alvo=%3m",
+				patrol.m_Group, Math.Sqrt(fallbackTravelSq), minimumTravel), LogLevel.WARNING);
+		}
+		Print(string.Format("[SPT_Garrison] Waypoint de patrulha adicionado | grupo=%1 | destino=%2 | indice=%3 | distancia=%4m | alvo=%5m | fallback=%6",
+			patrol.m_Group,
+			patrol.m_Posts[nextPost].m_Pos,
+			nextPost,
+			Math.Sqrt(HorizontalDistanceSq(travelOrigin, patrol.m_Posts[nextPost].m_Pos)),
+			minimumTravel,
+			usedFallback));
 	}
 
 	protected bool IsGroupInteriorPatrolling(SCR_AIGroup group)
