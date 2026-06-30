@@ -61,7 +61,6 @@ $grp GenericEntity : "{B1F6A2439C8D7500}Prefabs/Warfare/SPT_WarfarePoint.et" {
     m_fGarrisonSpawnDistance 400
     m_fGarrisonDespawnDistance 500
     m_fGarrisonPatrolRadius 200
-    m_iGarrisonLocationBudget 15
    }
   }
   coords 1398.746 10.904 1855.637

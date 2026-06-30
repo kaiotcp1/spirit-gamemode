@@ -1716,6 +1716,11 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		{
 			if (location.m_bSafe)
 				continue;
+			// Batalhas so atualizam com a localizacao materializada (ACTIVE).
+			// STREAMING_OUT e CACHED pausam a logica de ondas; os sobreviventes
+			// cacheados impedem o encerramento prematuro da batalha.
+			if (!location.IsActive())
+				continue;
 			SPT_LocationBattleState battle = location.m_Battle;
 			if (!battle.m_bActive)
 				continue;
@@ -1865,9 +1870,9 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			location.m_sName,
 			nextIndex,
 			SCR_Enum.GetEnumName(SPT_EDeploymentStrategy, wave.m_eStrategy),
-			wave.m_iUnitBudget,
+			plannedUnits,
 			requests.Count()));
-		m_OnBattleWaveDeployed.Invoke(location.m_sLocationId, nextIndex, wave.m_iUnitBudget);
+		m_OnBattleWaveDeployed.Invoke(location.m_sLocationId, nextIndex, plannedUnits);
 	}
 
 	protected void SpawnConvoyVehicles(
@@ -2163,7 +2168,8 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			delayMax = delayMin;
 		location.m_Battle.m_iTimerMs = RandomRangeInt(delayMin, delayMax);
 		int nextIndex = location.m_Battle.m_iCurrentWave + 1;
-		m_OnBattleWaveScheduled.Invoke(location.m_sLocationId, nextIndex);
+		if (nextIndex < location.m_Battle.m_aWaves.Count())
+			m_OnBattleWaveScheduled.Invoke(location.m_sLocationId, nextIndex);
 	}
 
 	protected int RandomRangeInt(int minimum, int maximum)
