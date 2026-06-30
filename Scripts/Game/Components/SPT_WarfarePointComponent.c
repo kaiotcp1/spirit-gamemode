@@ -1,5 +1,5 @@
 //! Componente colocado no World Editor em cada area participante do Warfare.
-//! Define ID, tipo, raio, ordem de captura e participacao na vitoria.
+//! Define ID, tipo, raio e participacao na vitoria.
 [ComponentEditorProps(category: "SPT/Warfare", description: "Define um ponto estrategico para o modo SPT Warfare.")]
 class SPT_WarfarePointComponentClass : SPT_WarfareNodeComponentClass
 {
@@ -10,9 +10,6 @@ class SPT_WarfarePointComponent : SPT_WarfareNodeComponent
 	//-----------------------------------------------------------------------
 	// ATRIBUTOS
 	//-----------------------------------------------------------------------
-
-	[Attribute("1", desc: "Ordem de captura do objetivo inimigo. Deve ser 1 ou maior.")]
-	protected int m_iCaptureOrder;
 
 	[Attribute("1", desc: "Se falso, este ponto nao conta para a condicao de vitoria.")]
 	protected bool m_bCountsForVictory;
@@ -111,7 +108,6 @@ class SPT_WarfarePointComponent : SPT_WarfareNodeComponent
 	// GETTERS/SETTERS
 	//-----------------------------------------------------------------------
 
-	override int GetCaptureOrder() { return m_iCaptureOrder; }
 	override bool IsHQ() { return false; }
 	override bool CountsForVictory() { return m_bCountsForVictory; }
 

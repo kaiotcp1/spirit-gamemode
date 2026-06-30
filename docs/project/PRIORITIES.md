@@ -26,7 +26,7 @@ Objetivo: garantir que mapas com `SPT_WarfareHQ` e `SPT_WarfarePoint` funcionem 
 Tarefas:
 
 - validar compile limpo no Workbench;
-- confirmar que HQs usam o prefab dedicado e inimigos usam ordem `1+`;
+- confirmar que HQs usam o prefab dedicado e todos os objetivos inimigos iniciam atacaveis;
 - validar configuracoes por area: distancias, prefabs, cache, budget, reforcos e comboios;
 - confirmar que a layer salva contem todos os pontos;
 - melhorar mensagens de erro no preview;
@@ -35,8 +35,7 @@ Tarefas:
 Critérios de aceite:
 
 - HQ nunca e registrado como localizacao hostil;
-- ordem `1` sempre vira frente inicial;
-- ordem `2+` so libera quando a ordem anterior inteira foi capturada;
+- todos os objetivos inimigos podem ser atacados e capturados em qualquer sequencia;
 - mapa tatico mostra todos os pontos;
 - JIP recebe snapshot correto.
 
@@ -45,8 +44,7 @@ Critérios de aceite:
 Tarefas:
 
 - mostrar motivo do erro no preview, nao apenas cor magenta;
-- logar resumo da sequencia de captura encontrada;
-- logar pontos por ordem;
+- logar resumo dos objetivos atacaveis registrados;
 - logar configuracao efetiva por area;
 - criar comando/API de dump do estado Warfare;
 - revisar atributos orfaos ou duplicados no GameMode.
@@ -57,7 +55,6 @@ Adicionar ou completar:
 
 - `ForceStartAttack(string pointId)`;
 - `OnPointCaptured`;
-- `OnPointUnlocked`;
 - `OnPointStateChanged`;
 - `OnPointAttackStarted`;
 - getters seguros para progresso e estado por ponto.
@@ -91,7 +88,6 @@ Salvar:
 - descoberta automatica de objetivos Warfare;
 - modo hibrido;
 - deduplicacao de descritores para pontos Warfare;
-- vizinhos manuais por string;
 - recaptura inimiga;
 - economia;
 - respawn dinamico do jogador;

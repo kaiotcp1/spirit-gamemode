@@ -6,7 +6,6 @@ class SPT_WarfareHQComponentClass : SPT_WarfareNodeComponentClass
 
 class SPT_WarfareHQComponent : SPT_WarfareNodeComponent
 {
-	override int GetCaptureOrder() { return 0; }
 	override bool IsHQ() { return true; }
 	override bool CountsForVictory() { return false; }
 }

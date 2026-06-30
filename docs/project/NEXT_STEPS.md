@@ -8,14 +8,14 @@ Este documento lista o que ainda faz sentido depois da mudanca para pontos Warfa
 
 - HQs aliados usam `Prefabs/Warfare/SPT_WarfareHQ.et`.
 - Objetivos inimigos usam `Prefabs/Warfare/SPT_WarfarePoint.et`.
-- `Capture Order` substitui vizinhos manuais e descoberta automatica.
-- HQs sao ordem territorial `0` por tipo e podem existir em varios locais.
+- Todos os objetivos inimigos iniciam atacaveis e podem ser conquistados em qualquer sequencia.
+- HQs sao aliados por tipo e podem existir em varios locais.
 - O Warfare registra localizacoes de guarnicao somente para objetivos inimigos.
 - HQ nao possui configuracao nem localizacao hostil.
 - `SPT_WarfarePoint` configura streaming, cache, prefabs, budget e reforcos por area.
 - Nao existem fallbacks globais de gameplay de area no `WorldGarrisonManager`.
 - Veiculos de comboio tambem sao configurados por `SPT_WarfarePoint`.
-- Preview do grafo aparece ao selecionar o GameMode no World Editor.
+- Preview dos pontos aparece ao selecionar o GameMode no World Editor.
 - Icones aparecem no mapa tatico nativo usando `SCR_MapEntity.WorldToScreen()`.
 - Snapshot JIP usa `RplSave`/`RplLoad`.
 - Mudancas de estado usam RPC confiavel.
@@ -27,7 +27,7 @@ Este documento lista o que ainda faz sentido depois da mudanca para pontos Warfa
 Objetivo:
 
 - confirmar que a remocao do fluxo automatico nao deixou referencias quebradas;
-- validar que nenhum `SPT_WarfarePoint` inimigo usa `Capture Order < 1`.
+- validar que todos os `SPT_WarfarePoint` inimigos iniciam como `FRONTLINE`.
 
 Checklist:
 
@@ -58,16 +58,13 @@ Melhoria proposta:
 
 - exibir motivo do erro perto do ponto no preview;
 - separar erro bloqueante de aviso;
-- mostrar lacunas de ordem de forma explicita;
 - destacar IDs duplicados com o mesmo texto/indice.
 
 Erros importantes:
 
 - ID vazio;
 - ID duplicado;
-- objetivo inimigo com ordem menor que `1`;
 - ausencia de HQ;
-- lacuna de ordem;
 - ponto sem localizacao registrada.
 
 ### 3. Documentar procedimento definitivo de setup no editor
@@ -76,8 +73,7 @@ Criar um guia curto com:
 
 - como adicionar `SPT_WarfareHQ.et` e `SPT_WarfarePoint.et`;
 - como preencher ID;
-- como definir ordem;
-- como configurar HQ;
+- como configurar HQ e guarnicoes inimigas;
 - como interpretar cores do preview;
 - como testar no mapa.
 
@@ -101,7 +97,7 @@ Agora cada `SPT_WarfarePoint` possui muitos atributos de guarnicao. Para mapas m
 Objetivo:
 
 - permitir scripts/missoes iniciarem ataque em um ponto especifico;
-- validar se o ponto esta liberado pela ordem de captura;
+- validar se o ponto existe, ainda nao foi capturado e possui guarnicao configurada;
 - iniciar batalha sem depender da primeira baixa, se desejado.
 
 ### 6. Invokers publicos Warfare
@@ -109,7 +105,6 @@ Objetivo:
 Adicionar eventos para integracoes futuras:
 
 - `OnPointCaptured`;
-- `OnPointUnlocked`;
 - `OnPointStateChanged`;
 - `OnPointAttackStarted`;
 - `OnWarfareVictory` ja existe/permanece.

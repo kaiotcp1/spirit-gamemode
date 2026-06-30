@@ -49,59 +49,18 @@ Log esperado:
 ## Configuracao de pontos
 
 Cada HQ e objetivo inimigo possui ID, nome, tipo visual e raio. Somente
-`SPT_WarfarePoint` possui:
+`SPT_WarfarePoint` possui `Counts For Victory` e a configuracao completa de
+guarnicao, streaming, cache, prefabs e reforcos.
 
-- `Capture Order`: obrigatoriamente `1` ou maior;
-- `Counts For Victory`: se entra na condicao de vitoria.
-- configuracao de guarnicao, streaming, cache, prefabs e reforcos por area.
+`SPT_WarfareHQ` e sempre aliado, capturado e nao conta para a condicao de
+vitoria. Varios HQs sao permitidos.
 
-`SPT_WarfareHQ` e sempre aliado, capturado, ordem territorial `0` e nao conta
-para a condicao de vitoria. Varios HQs sao permitidos.
+### Conquista livre
 
-### Ordem de captura
-
-A progressao territorial e derivada somente do atributo `Capture Order`.
-
-| Ordem | Significado |
-|---|---|
-| `0` | Reservada internamente aos prefabs `SPT_WarfareHQ` |
-| `1` | Primeira etapa inimiga atacavel |
-| `2` | Segunda etapa; libera quando todos os pontos de ordem `1` forem capturados |
-| `3+` | Etapas seguintes, seguindo a mesma regra |
-
-Regras:
-
-- precisa existir pelo menos um `SPT_WarfareHQ`;
-- objetivos inimigos com ordem menor que `1` sao invalidos;
-- a sequencia precisa comecar em `0`;
-- nao pode haver lacunas entre ordens;
-- pontos com a mesma ordem sao objetivos paralelos;
-- todos os pontos da ordem anterior precisam ser capturados para liberar a proxima ordem.
-
-Exemplo:
-
-```text
-SPT_WarfareHQ_Base
-SPT_WarfarePoint_Vila_A   Capture Order = 1
-SPT_WarfarePoint_Vila_B   Capture Order = 1
-SPT_WarfarePoint_Base_C   Capture Order = 2
-```
-
-Nesse exemplo, a base de ordem `2` so vira frente de batalha quando `Vila_A` e `Vila_B` estiverem capturadas.
-
-## Grafo territorial
-
-O grafo e construido automaticamente pelo GameMode:
-
-- todo ponto de ordem `N` se conecta aos pontos de ordem `N - 1`;
-- os links sao bidirecionais para preview e alcance;
-- nao ha mais configuracao manual de vizinhos.
-
-Isso simplifica a configuracao no editor e reduz erro humano. A ordem numerica passa a ser a fonte unica da progressao.
-
-A ordem de captura nao bloqueia streaming fisico. Um ponto `LOCKED` ainda pode
-spawnar guarnicao se o jogador chegar dentro da distancia de spawn configurada
-para aquela area. A ordem controla captura/frente, nao presenca de IA.
+Todos os objetivos inimigos iniciam como `FRONTLINE`, recebem monitoramento de
+baixas e podem iniciar batalha, receber reforcos e ser capturados em qualquer
+sequencia. Nao existe `Capture Order`, grafo territorial ou dependencia entre
+objetivos.
 
 ## Configuracao de guarnicao por ponto
 
@@ -173,10 +132,10 @@ O ID da localizacao de guarnicao e o mesmo `Point ID` do Warfare. Por isso, o po
 Fluxo de inicializacao no servidor:
 
 1. coletar `SPT_WarfareHQComponent` e `SPT_WarfarePointComponent`;
-2. validar IDs e ordens;
-3. construir grafo por ordem de captura;
+2. validar IDs, HQ e configuracoes de guarnicao;
+3. marcar todos os objetivos inimigos como atacaveis;
 4. registrar somente objetivos inimigos no `SPT_WorldGarrisonManagerComponent`;
-5. calcular frente inicial;
+5. montar a lista de objetivos atacaveis;
 6. replicar snapshot para clientes.
 
 Logs esperados para pontos validos:
@@ -190,7 +149,6 @@ Logs esperados para pontos validos:
 
 | Estado | Cor no mapa | Significado |
 |---|---|---|
-| `LOCKED` | Vermelho escuro | Inimigo, mas ainda bloqueado pela ordem de captura |
 | `FRONTLINE` | Vermelho | Atacavel agora |
 | `UNDER_ATTACK` | Laranja | Primeira baixa registrada; reforcos autorizados |
 | `CLEARED_WAITING` | Amarelo | Guarnicao local eliminada, aguardando presenca/captura |
@@ -206,10 +164,8 @@ Captura e reforcos sao independentes:
 
 ## Regra de ataque e captura
 
-Um ponto inimigo fica atacavel quando:
-
-- esta em `FRONTLINE`;
-- todos os pontos da ordem anterior foram capturados.
+Todo ponto inimigo nao capturado fica atacavel independentemente das demais
+capturas.
 
 A primeira baixa da guarnicao:
 
@@ -222,7 +178,6 @@ Um ponto captura quando:
 1. a guarnicao local CQB/patrulha esta zerada;
 2. nao ha spawn local pendente;
 3. existe jogador vivo da faccao configurada dentro do raio, se `Require Player Presence` estiver ativo;
-4. a ordem anterior ja esta completamente capturada.
 
 Se a guarnicao zerar sem presenca, o ponto fica em `CLEARED_WAITING`.
 
@@ -233,13 +188,10 @@ Ao selecionar o GameMode no World Editor, o componente desenha um preview com `S
 O preview usa a mesma resolucao do runtime:
 
 - HQ em azul;
-- frente inicial em laranja;
-- pontos alcancaveis por BFS em verde;
-- pontos bloqueados/desconectados em vermelho;
+- todos os objetivos inimigos em laranja;
 - pontos invalidos em magenta;
-- linhas entre ordens consecutivas.
 
-O preview tambem mostra raio, ID e nome dos pontos. Ao mover entidades ou alterar atributos, ele recalcula o grafo na atualizacao do editor.
+O preview tambem mostra raio, ID e nome dos pontos.
 
 ## Mapa tatico nativo
 
@@ -261,9 +213,7 @@ Erros que bloqueiam a inicializacao Warfare:
 - nenhum ponto manual encontrado;
 - ID vazio;
 - ID duplicado;
-- objetivo inimigo com ordem menor que `1`;
 - ausencia de `SPT_WarfareHQ`;
-- lacuna na sequencia de ordens;
 - falha ao registrar localizacao manual de guarnicao.
 
 Avisos esperados:
@@ -276,9 +226,9 @@ Avisos esperados:
 1. Coloque um `SPT_WarfareHQ.et` e configure um ID unico.
 2. Adicione outros HQs se a missao tiver varias origens aliadas.
 3. Coloque os `SPT_WarfarePoint.et` inimigos.
-4. Configure IDs unicos e ordens `1`, `2`, `3` etc.
-5. Selecione o GameMode para visualizar o grafo.
-6. Corrija pontos magenta ou lacunas de ordem.
+4. Configure IDs unicos e a guarnicao de cada objetivo.
+5. Selecione o GameMode para visualizar os pontos.
+6. Corrija pontos magenta.
 7. Salve a layer.
 8. Compile scripts.
 9. Rode Play Mode.
@@ -290,10 +240,8 @@ Avisos esperados:
 
 - GameMode selecionado mostra preview.
 - HQ aparece azul.
-- Ordem `1` aparece como frente inicial.
-- Ordens seguintes ficam conectadas por linhas.
+- Todos os objetivos inimigos aparecem como atacaveis.
 - ID duplicado ou vazio fica invalido.
-- Lacuna de ordem fica invalida.
 
 ### Runtime local
 
@@ -301,11 +249,11 @@ Avisos esperados:
 - log registra uma localizacao somente para cada objetivo inimigo;
 - log imprime configuracao efetiva por localizacao;
 - HQ nao aparece nos logs do gerenciador de guarnicao;
-- ponto de ordem `1` spawna inimigos ao aproximar;
+- qualquer objetivo spawna inimigos ao aproximar;
 - primeira baixa muda para `UNDER_ATTACK`;
 - eliminar a guarnicao muda para `CLEARED_WAITING` ou captura;
 - entrar no raio captura o ponto;
-- proxima ordem so libera quando a ordem anterior inteira foi capturada.
+- objetivos podem ser conquistados em qualquer sequencia.
 
 ### Mapa
 

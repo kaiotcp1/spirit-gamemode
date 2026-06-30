@@ -1,18 +1,17 @@
 //! Estados de um ponto Warfare durante a campanha de conquista territorial.
 enum SPT_EWarfarePointState
 {
-	//! Area inimiga desconectada da frente azul. Nao pode ser atacada.
-	LOCKED,
-	//! Area inimiga conectada a frente, disponivel para ataque.
-	FRONTLINE,
+	//! Area inimiga disponivel para ataque.
+	//! O valor 1 preserva compatibilidade com snapshots anteriores.
+	FRONTLINE = 1,
 	//! Primeira baixa registrada; reforcos autorizados.
-	UNDER_ATTACK,
-	//! Guarnicao eliminada, aguardando presenca de jogador ou conexao territorial.
-	CLEARED_WAITING,
+	UNDER_ATTACK = 2,
+	//! Guarnicao eliminada, aguardando presenca de jogador.
+	CLEARED_WAITING = 3,
 	//! Capturada pelo jogador, mas reforcos inimigos ainda estao chegando.
-	CAPTURED_DEFENDING,
+	CAPTURED_DEFENDING = 4,
 	//! Area conquistada e batalha encerrada.
-	CAPTURED
+	CAPTURED = 5
 }
 
 //! Tipos de area para pontos Warfare.
@@ -82,14 +81,8 @@ class SPT_WarfarePointData : Managed
 	//! Raio de ataque/captura em metros.
 	float m_fRadius;
 
-	//! IDs dos pontos vizinhos (links do grafo territorial).
-	ref array<string> m_aNeighborIds;
-
 	//! Verdadeiro se este ponto e um HQ inicial.
 	bool m_bIsHQ;
-
-	//! Etapa territorial: 0 para SPT_WarfareHQ e 1+ para objetivo inimigo.
-	int m_iCaptureOrder;
 
 	//! Verdadeiro se este ponto conta para a condicao de vitoria.
 	bool m_bCountsForVictory;
@@ -105,7 +98,6 @@ class SPT_WarfarePointData : Managed
 
 	void SPT_WarfarePointData()
 	{
-		m_aNeighborIds = new array<string>();
 		m_fRadius = 150.0;
 		m_bCountsForVictory = true;
 	}
@@ -123,6 +115,6 @@ class SPT_WarfarePointStateSnapshot : Managed
 
 	void SPT_WarfarePointStateSnapshot()
 	{
-		m_eState = SPT_EWarfarePointState.LOCKED;
+		m_eState = SPT_EWarfarePointState.FRONTLINE;
 	}
 }

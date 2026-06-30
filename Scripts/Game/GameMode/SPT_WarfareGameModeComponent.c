@@ -1,8 +1,8 @@
 //! Coordenador autoritativo da campanha de conquista territorial SPT Warfare.
 //! Componente singleton colocado no GameMode. Responsavel por:
 //! - Registrar e validar pontos Warfare colocados manualmente
-//! - Manter o grafo territorial e a frente de batalha (BFS)
-//! - Gerenciar estados de cada area (LOCKED -> CAPTURED)
+//! - Manter todos os objetivos inimigos atacaveis em qualquer ordem
+//! - Gerenciar estados de cada area (FRONTLINE -> CAPTURED)
 //! - Integrar com SPT_WorldGarrisonManagerComponent para batalhas e reforcos
 //! - Verificar condicao de vitoria
 //! - Replicar estado para clientes
@@ -226,12 +226,12 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 		if (!SCR_Global.IsEditMode())
 			return;
 
-		DrawEditorGraphPreview(owner);
+		DrawEditorPreview(owner);
 	}
 
-	//! Reconstroi e desenha o grafo a cada atualizacao do World Editor.
+	//! Reconstroi e desenha os pontos a cada atualizacao do World Editor.
 	//! Shapes ONCE evitam manter handles ou deixar desenhos residuais.
-	protected void DrawEditorGraphPreview(IEntity owner)
+	protected void DrawEditorPreview(IEntity owner)
 	{
 		BaseWorld world = GetGame().GetWorld();
 		if (!world)
@@ -247,30 +247,10 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 			FilterWarfarePoint,
 			EQueryEntitiesFlags.ALL);
 
-		BuildEditorCaptureOrderGraph();
-		ValidateEditorPreviewPoints();
-
-		ref map<string, bool> reachable = new map<string, bool>();
-		ref map<string, bool> frontline = new map<string, bool>();
-		BuildEditorReachability(reachable, frontline);
-
 		foreach (SPT_WarfarePointData point : m_aEditorPreviewPoints)
 		{
-			int color = GetEditorPointColor(point, reachable, frontline);
+			int color = GetEditorPointColor(point);
 			DrawEditorPoint(point, color);
-
-			foreach (string neighborId : point.m_aNeighborIds)
-			{
-				SPT_WarfarePointData neighbor = FindEditorPreviewPoint(neighborId);
-				if (!neighbor || point.m_sPointId.Compare(neighborId) >= 0)
-					continue;
-
-				vector linePoints[2];
-				linePoints[0] = point.m_vCenter + Vector(0, 1, 0);
-				linePoints[1] = neighbor.m_vCenter + Vector(0, 1, 0);
-				int lineColor = GetEditorLineColor(point, neighbor, reachable, frontline);
-				Shape.CreateLines(lineColor, ShapeFlags.ONCE | ShapeFlags.NOZBUFFER, linePoints, 2);
-			}
 		}
 	}
 
@@ -286,7 +266,6 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 		point.m_ePointType = comp.GetPointType();
 		point.m_vCenter = entity.GetOrigin();
 		point.m_fRadius = comp.GetRadius();
-		point.m_iCaptureOrder = comp.GetCaptureOrder();
 		point.m_bIsHQ = comp.IsHQ();
 		point.m_bCountsForVictory = comp.CountsForVictory();
 
@@ -313,29 +292,6 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 		return true;
 	}
 
-	protected void BuildEditorCaptureOrderGraph()
-	{
-		foreach (SPT_WarfarePointData point : m_aEditorPreviewPoints)
-		{
-			point.m_aNeighborIds.Clear();
-			if (!point.m_bIsHQ && point.m_iCaptureOrder < 1)
-				point.m_bPreviewInvalid = true;
-		}
-
-		foreach (SPT_WarfarePointData current : m_aEditorPreviewPoints)
-		{
-			if (current.m_iCaptureOrder < 1)
-				continue;
-			foreach (SPT_WarfarePointData previous : m_aEditorPreviewPoints)
-			{
-				if (previous.m_iCaptureOrder != current.m_iCaptureOrder - 1)
-					continue;
-				current.m_aNeighborIds.Insert(previous.m_sPointId);
-				previous.m_aNeighborIds.Insert(current.m_sPointId);
-			}
-		}
-	}
-
 	protected SPT_WarfarePointData FindEditorPreviewPoint(string pointId)
 	{
 		foreach (SPT_WarfarePointData point : m_aEditorPreviewPoints)
@@ -346,107 +302,13 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 		return null;
 	}
 
-	protected void BuildEditorReachability(notnull map<string, bool> reachable,
-		notnull map<string, bool> frontline)
-	{
-		ref array<string> queue = new array<string>();
-		foreach (SPT_WarfarePointData point : m_aEditorPreviewPoints)
-		{
-			if (!point.m_bIsHQ || point.m_bPreviewInvalid)
-				continue;
-			reachable.Set(point.m_sPointId, true);
-			queue.Insert(point.m_sPointId);
-			foreach (string neighborId : point.m_aNeighborIds)
-				frontline.Set(neighborId, true);
-		}
-
-		while (!queue.IsEmpty())
-		{
-			string currentId = queue[0];
-			queue.Remove(0);
-			SPT_WarfarePointData current = FindEditorPreviewPoint(currentId);
-			if (!current)
-				continue;
-
-			foreach (string neighborId : current.m_aNeighborIds)
-			{
-				SPT_WarfarePointData neighbor = FindEditorPreviewPoint(neighborId);
-				if (!neighbor || neighbor.m_bPreviewInvalid || reachable.Contains(neighborId))
-					continue;
-				reachable.Set(neighborId, true);
-				queue.Insert(neighborId);
-			}
-		}
-	}
-
-	protected void ValidateEditorPreviewPoints()
-	{
-		int maximumOrder;
-		foreach (SPT_WarfarePointData orderPoint : m_aEditorPreviewPoints)
-		{
-			if (orderPoint.m_iCaptureOrder > maximumOrder)
-				maximumOrder = orderPoint.m_iCaptureOrder;
-		}
-
-		int firstMissingOrder = -1;
-		for (int order = 0; order <= maximumOrder; order++)
-		{
-			bool foundOrder;
-			foreach (SPT_WarfarePointData candidate : m_aEditorPreviewPoints)
-			{
-				if (candidate.m_iCaptureOrder == order)
-				{
-					foundOrder = true;
-					break;
-				}
-			}
-			if (!foundOrder)
-			{
-				firstMissingOrder = order;
-				break;
-			}
-		}
-
-		foreach (SPT_WarfarePointData point : m_aEditorPreviewPoints)
-		{
-			if (firstMissingOrder >= 0 && point.m_iCaptureOrder > firstMissingOrder)
-				point.m_bPreviewInvalid = true;
-			foreach (string neighborId : point.m_aNeighborIds)
-			{
-				if (neighborId == point.m_sPointId || !FindEditorPreviewPoint(neighborId))
-					point.m_bPreviewInvalid = true;
-			}
-
-			if (point.m_iCaptureOrder > 0 && point.m_aNeighborIds.IsEmpty())
-				point.m_bPreviewInvalid = true;
-		}
-	}
-
-	protected int GetEditorPointColor(SPT_WarfarePointData point,
-		notnull map<string, bool> reachable, notnull map<string, bool> frontline)
+	protected int GetEditorPointColor(SPT_WarfarePointData point)
 	{
 		if (point.m_bPreviewInvalid)
 			return ARGB(255, 255, 0, 255);
 		if (point.m_bIsHQ)
 			return ARGB(255, 40, 120, 255);
-		if (frontline.Contains(point.m_sPointId))
-			return ARGB(255, 255, 140, 0);
-		if (reachable.Contains(point.m_sPointId))
-			return ARGB(255, 40, 220, 80);
-		return ARGB(255, 230, 40, 40);
-	}
-
-	protected int GetEditorLineColor(SPT_WarfarePointData pointA,
-		SPT_WarfarePointData pointB, notnull map<string, bool> reachable,
-		notnull map<string, bool> frontline)
-	{
-		if (pointA.m_bPreviewInvalid || pointB.m_bPreviewInvalid)
-			return ARGB(255, 255, 0, 255);
-		if (frontline.Contains(pointA.m_sPointId) || frontline.Contains(pointB.m_sPointId))
-			return ARGB(255, 255, 140, 0);
-		if (reachable.Contains(pointA.m_sPointId) && reachable.Contains(pointB.m_sPointId))
-			return ARGB(255, 40, 220, 80);
-		return ARGB(255, 230, 40, 40);
+		return ARGB(255, 255, 140, 0);
 	}
 
 	protected void DrawEditorPoint(SPT_WarfarePointData point, int color)
@@ -487,19 +349,17 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 
 		// A configuracao Warfare e exclusivamente manual.
 		CollectManualPoints();
-		BuildCaptureOrderGraph();
 
-		// 4. Inicializa estados (precisa rodar antes da validacao para popular m_aHQIds)
+		// Inicializa estados antes da validacao para popular m_aHQIds.
 		InitializePointStates();
 
-		// 5. Valida o grafo
-		if (!ValidateGraph())
+		if (!ValidateConfiguration())
 		{
-			Print("[SPT_Warfare] ERRO: Validacao do grafo falhou. Warfare desabilitado.", LogLevel.ERROR);
+			Print("[SPT_Warfare] ERRO: Validacao da configuracao falhou. Warfare desabilitado.", LogLevel.ERROR);
 			return;
 		}
 
-		// 5.5 Cria as guarnicoes nos centros manuais somente apos validar a sequencia.
+		// Cria as guarnicoes nos centros manuais somente apos validar os pontos.
 		ConfigureManualGarrisonLocations();
 		if (m_bManualConfigurationInvalid)
 		{
@@ -605,7 +465,6 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 		data.m_ePointType = comp.GetPointType();
 		data.m_vCenter = entity.GetOrigin();
 		data.m_fRadius = comp.GetRadius();
-		data.m_iCaptureOrder = comp.GetCaptureOrder();
 		data.m_bIsHQ = comp.IsHQ();
 		data.m_bCountsForVictory = comp.CountsForVictory();
 		if (!data.m_bIsHQ)
@@ -627,42 +486,8 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 		m_aPointOrder.Insert(pointId);
 		m_iManualPointsCollected++;
 
-		Print(string.Format("[SPT_Warfare] Ponto manual registrado | id=%1 | nome=%2 | tipo=%3 | ordem=%4 | HQ=%5",
-			pointId, data.m_sDisplayName, data.m_ePointType,
-			data.m_iCaptureOrder, data.m_bIsHQ));
-	}
-
-	protected void BuildCaptureOrderGraph()
-	{
-		foreach (string pointId : m_aPointOrder)
-		{
-			SPT_WarfarePointData point = m_mPointsById.Get(pointId);
-			if (!point)
-				continue;
-			point.m_aNeighborIds.Clear();
-			if (!point.m_bIsHQ && point.m_iCaptureOrder < 1)
-			{
-				Print(string.Format("[SPT_Warfare] ERRO: Objetivo inimigo %1 deve usar Capture Order igual ou maior que 1.",
-					pointId), LogLevel.ERROR);
-				m_bManualConfigurationInvalid = true;
-			}
-		}
-
-		foreach (string currentId : m_aPointOrder)
-		{
-			SPT_WarfarePointData current = m_mPointsById.Get(currentId);
-			if (!current || current.m_iCaptureOrder < 1)
-				continue;
-
-			foreach (string previousId : m_aPointOrder)
-			{
-				SPT_WarfarePointData previous = m_mPointsById.Get(previousId);
-				if (!previous || previous.m_iCaptureOrder != current.m_iCaptureOrder - 1)
-					continue;
-				current.m_aNeighborIds.Insert(previousId);
-				previous.m_aNeighborIds.Insert(currentId);
-			}
-		}
+		Print(string.Format("[SPT_Warfare] Ponto manual registrado | id=%1 | nome=%2 | tipo=%3 | HQ=%4",
+			pointId, data.m_sDisplayName, data.m_ePointType, data.m_bIsHQ));
 	}
 
 	protected void ConfigureManualGarrisonLocations()
@@ -694,10 +519,10 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 	}
 
 	//-----------------------------------------------------------------------
-	// VALIDACAO DO GRAFO
+	// VALIDACAO DA CONFIGURACAO
 	//-----------------------------------------------------------------------
 
-	protected bool ValidateGraph()
+	protected bool ValidateConfiguration()
 	{
 		bool valid = true;
 
@@ -711,23 +536,6 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 			valid = false;
 		}
 
-		int maximumOrder;
-		foreach (string orderPointId : m_aPointOrder)
-		{
-			SPT_WarfarePointData orderPoint = m_mPointsById.Get(orderPointId);
-			if (orderPoint && orderPoint.m_iCaptureOrder > maximumOrder)
-				maximumOrder = orderPoint.m_iCaptureOrder;
-		}
-		for (int order = 0; order <= maximumOrder; order++)
-		{
-			if (HasCaptureOrder(order))
-				continue;
-			Print(string.Format("[SPT_Warfare] ERRO: Etapa de captura %1 ausente. A sequencia deve ser continua.",
-				order), LogLevel.ERROR);
-			valid = false;
-		}
-
-		// Verifica IDs duplicados e vizinhos inexistentes
 		foreach (string pointId : m_aPointOrder)
 		{
 			SPT_WarfarePointData data = m_mPointsById.Get(pointId);
@@ -740,95 +548,9 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 					pointId), LogLevel.ERROR);
 				valid = false;
 			}
-
-			// Verifica se ha link para o proprio ponto
-			if (data.m_aNeighborIds.Find(pointId) >= 0)
-			{
-				Print(string.Format("[SPT_Warfare] ERRO: Ponto %1 tem link para si mesmo.",
-					pointId), LogLevel.ERROR);
-				data.m_aNeighborIds.RemoveItem(pointId);
-				valid = false;
-			}
-
-			// Verifica vizinhos inexistentes
-			for (int i = data.m_aNeighborIds.Count() - 1; i >= 0; i--)
-			{
-				if (!m_mPointsById.Contains(data.m_aNeighborIds[i]))
-				{
-					Print(string.Format("[SPT_Warfare] ERRO: Vizinho '%1' do ponto %2 nao existe.",
-						data.m_aNeighborIds[i], pointId), LogLevel.ERROR);
-					data.m_aNeighborIds.Remove(i);
-					valid = false;
-				}
-			}
-		}
-
-		// Verifica pontos inalcancaveis a partir das HQs (BFS)
-		foreach (string pointId : m_aPointOrder)
-		{
-			if (m_aHQIds.Find(pointId) >= 0)
-				continue;
-
-			if (!IsReachableFromHQ(pointId))
-			{
-				Print(string.Format("[SPT_Warfare] AVISO: Ponto %1 (%2) nao e alcancavel a partir de nenhuma HQ.",
-					pointId, GetPointDisplayName(pointId)), LogLevel.WARNING);
-				// Nao e erro fatal - o ponto fica LOCKED para sempre
-			}
 		}
 
 		return valid;
-	}
-
-	protected bool HasCaptureOrder(int captureOrder)
-	{
-		foreach (string pointId : m_aPointOrder)
-		{
-			SPT_WarfarePointData point = m_mPointsById.Get(pointId);
-			if (point && point.m_iCaptureOrder == captureOrder)
-				return true;
-		}
-		return false;
-	}
-
-	//! BFS simples para verificar se um ponto e alcancavel a partir de qualquer HQ.
-	protected bool IsReachableFromHQ(string targetId)
-	{
-		if (m_aHQIds.Find(targetId) >= 0)
-			return true;
-
-		ref map<string, bool> visited = new map<string, bool>();
-		ref array<string> queue = new array<string>();
-
-		foreach (string hqId : m_aHQIds)
-		{
-			queue.Insert(hqId);
-			visited.Set(hqId, true);
-		}
-
-		while (queue.Count() > 0)
-		{
-			string current = queue[0];
-			queue.Remove(0);
-
-			SPT_WarfarePointData data = m_mPointsById.Get(current);
-			if (!data)
-				continue;
-
-			foreach (string neighborId : data.m_aNeighborIds)
-			{
-				if (visited.Contains(neighborId))
-					continue;
-
-				if (neighborId == targetId)
-					return true;
-
-				visited.Set(neighborId, true);
-				queue.Insert(neighborId);
-			}
-		}
-
-		return false;
 	}
 
 	//-----------------------------------------------------------------------
@@ -852,22 +574,20 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 			}
 			else
 			{
-				m_mPointStates.Set(pointId, SPT_EWarfarePointState.LOCKED);
+				m_mPointStates.Set(pointId, SPT_EWarfarePointState.FRONTLINE);
 				m_mPointCaptured.Set(pointId, false);
 			}
 		}
 
-		// Calcula a frente inicial
+		// Todos os objetivos inimigos comecam atacaveis.
 		RecalculateFrontline();
 	}
 
 	//-----------------------------------------------------------------------
-	// GRAFO TERRITORIAL - BFS DA FRENTE
+	// OBJETIVOS ATACAVEIS
 	//-----------------------------------------------------------------------
 
-	//! Recalcula quais pontos estao na frente (FRONTLINE).
-	//! Um ponto inimigo e FRONTLINE quando todos os pontos da etapa anterior
-	//! foram capturados.
+	//! Mantem na lista de frente todos os objetivos inimigos ainda nao capturados.
 	protected void RecalculateFrontline()
 	{
 		m_aFrontlineIds.Clear();
@@ -878,25 +598,13 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 				continue;
 
 			SPT_WarfarePointData data = m_mPointsById.Get(pointId);
-			if (!data)
+			if (!data || data.m_bIsHQ)
 				continue;
 
-			if (ArePreviousOrderPointsCaptured(data))
-			{
-				m_aFrontlineIds.Insert(pointId);
-				ChangePointState(pointId, SPT_EWarfarePointState.FRONTLINE);
-			}
-
-			// Se nao tem vizinhos capturados, permanece LOCKED
-			if (m_aFrontlineIds.Find(pointId) < 0)
-			{
-				SPT_EWarfarePointState currentState = GetPointState(pointId);
-				if (currentState != SPT_EWarfarePointState.LOCKED)
-					ChangePointState(pointId, SPT_EWarfarePointState.LOCKED);
-			}
+			m_aFrontlineIds.Insert(pointId);
 		}
 
-		Print(string.Format("[SPT_Warfare] Frente recalculada | pontosNaFrente=%1 | totalCapturados=%2",
+		Print(string.Format("[SPT_Warfare] Objetivos atacaveis atualizados | disponiveis=%1 | totalCapturados=%2",
 			m_aFrontlineIds.Count(), GetCapturedPointCount()));
 	}
 
@@ -917,13 +625,7 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 		garrisonMgr.GetOnBattleWaveDeployed().Insert(OnBattleWaveDeployed);
 		garrisonMgr.GetOnBattleEnded().Insert(OnBattleEnded);
 
-		// Inicia monitoramento para pontos na frente
-		foreach (string pointId : m_aFrontlineIds)
-		{
-			SPT_WarfarePointData data = m_mPointsById.Get(pointId);
-			if (data && !data.m_sGarrisonLocationId.IsEmpty())
-				garrisonMgr.StartMonitoringLocation(data.m_sGarrisonLocationId);
-		}
+		StartMonitoringAllAttackablePoints(garrisonMgr);
 	}
 
 	protected void OnGarrisonFirstCasualty(string locationId)
@@ -954,26 +656,21 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 		if (pointId.IsEmpty())
 			return;
 
-		SPT_EWarfarePointState currentState = GetPointState(pointId);
-
 		// Verifica se ha jogador presente no raio
-		bool playerPresent = IsPlayerInRadius(pointId);
-		bool isConnected = IsPointFrontline(pointId) || IsPointCapturedByNeighbor(pointId);
+		bool playerPresent = !m_bRequirePlayerPresence || IsPlayerInRadius(pointId);
 
-		if (playerPresent && isConnected)
+		if (playerPresent)
 		{
 			// Captura imediata
 			CapturePoint(pointId);
 		}
 		else
 		{
-			// Aguardando presenca ou conexao
+			// Aguardando presenca
 			ChangePointState(pointId, SPT_EWarfarePointState.CLEARED_WAITING);
 
 			if (!playerPresent)
 				Print(string.Format("[SPT_Warfare] Aguardando jogador | ponto=%1", pointId));
-			if (!isConnected)
-				Print(string.Format("[SPT_Warfare] Aguardando conexao | ponto=%1", pointId));
 		}
 	}
 
@@ -1016,14 +713,6 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 		if (currentState == SPT_EWarfarePointState.CAPTURED_DEFENDING)
 		{
 			ChangePointState(pointId, SPT_EWarfarePointState.CAPTURED);
-			RecalculateFrontline();
-
-			// Pontos que acabaram de entrar na frente precisam de
-			// monitoramento de primeira baixa ativado.
-			SPT_WorldGarrisonManagerComponent garrisonMgr = SPT_WorldGarrisonManagerComponent.GetInstance();
-			if (garrisonMgr)
-				StartMonitoringNewFrontlinePoints(garrisonMgr);
-
 			CheckVictory();
 		}
 	}
@@ -1070,18 +759,12 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 		Print(string.Format("[SPT_Warfare] Ponto capturado | id=%1 | nome=%2 | novoEstado=%3 | batalhaAtiva=%4",
 			pointId, data.m_sDisplayName, newState, hasActiveBattle));
 
-		// Recalcula a frente para desbloquear novos vizinhos
-		RecalculateFrontline();
-
-		// Inicia monitoramento nos novos pontos da frente
-		StartMonitoringNewFrontlinePoints(garrisonMgr);
-
 		// Verifica vitoria
 		if (newState == SPT_EWarfarePointState.CAPTURED)
 			CheckVictory();
 	}
 
-	protected void StartMonitoringNewFrontlinePoints(SPT_WorldGarrisonManagerComponent garrisonMgr)
+	protected void StartMonitoringAllAttackablePoints(SPT_WorldGarrisonManagerComponent garrisonMgr)
 	{
 		if (!garrisonMgr)
 			return;
@@ -1122,11 +805,7 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 			if (!playerPresent)
 				continue;
 
-			// Jogador presente + conexao = captura
-			if (IsPointFrontline(pointId) || IsPointCapturedByNeighbor(pointId))
-			{
-				CapturePoint(pointId);
-			}
+			CapturePoint(pointId);
 		}
 	}
 
@@ -1297,32 +976,6 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 		return m_aFrontlineIds.Find(pointId) >= 0;
 	}
 
-	bool IsPointCapturedByNeighbor(string pointId)
-	{
-		SPT_WarfarePointData data = m_mPointsById.Get(pointId);
-		if (!data)
-			return false;
-		return ArePreviousOrderPointsCaptured(data);
-	}
-
-	protected bool ArePreviousOrderPointsCaptured(SPT_WarfarePointData data)
-	{
-		if (!data || data.m_iCaptureOrder < 1)
-			return false;
-
-		bool foundPrevious;
-		foreach (string candidateId : m_aPointOrder)
-		{
-			SPT_WarfarePointData candidate = m_mPointsById.Get(candidateId);
-			if (!candidate || candidate.m_iCaptureOrder != data.m_iCaptureOrder - 1)
-				continue;
-			foundPrevious = true;
-			if (!IsPointCaptured(candidateId))
-				return false;
-		}
-		return foundPrevious;
-	}
-
 	float GetCampaignProgress()
 	{
 		int capturable = 0;
@@ -1425,7 +1078,7 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 		outName = pointId;
 		outPosition = vector.Zero;
 		outType = SPT_EWarfarePointType.CUSTOM;
-		outState = SPT_EWarfarePointState.LOCKED;
+		outState = SPT_EWarfarePointState.FRONTLINE;
 		outIsHQ = false;
 		outManpower = 0;
 		outWaveIndex = -1;
@@ -1565,7 +1218,7 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 				writer.WriteFloat(0.0);
 				writer.WriteFloat(0.0);
 				writer.WriteInt(0);
-				writer.WriteInt(SPT_EWarfarePointState.LOCKED);
+				writer.WriteInt(SPT_EWarfarePointState.FRONTLINE);
 				writer.WriteInt(0);
 				writer.WriteInt(0);
 				writer.WriteInt(-1);
@@ -1668,7 +1321,7 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 		SPT_EWarfarePointState newState = stateRaw;
 
 		// Obtem estado anterior para detectar transicao
-		SPT_EWarfarePointState oldState = SPT_EWarfarePointState.LOCKED;
+		SPT_EWarfarePointState oldState = SPT_EWarfarePointState.FRONTLINE;
 		if (m_mClientPointStates.Contains(pointId))
 			oldState = m_mClientPointStates.Get(pointId);
 

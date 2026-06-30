@@ -42,7 +42,6 @@ $grp GenericEntity : "{B1F6A2439C8D7500}Prefabs/Warfare/SPT_WarfarePoint.et" {
     m_sDisplayName "Base Militar Aeroporto"
     m_ePointType MILITARY_BASE
     m_fRadius 100
-    m_iCaptureOrder 2
     m_fGarrisonSpawnDistance 400
     m_fGarrisonDespawnDistance 400
     m_fGarrisonPatrolRadius 200
@@ -59,7 +58,6 @@ $grp GenericEntity : "{B1F6A2439C8D7500}Prefabs/Warfare/SPT_WarfarePoint.et" {
     m_sDisplayName "Area militar 1"
     m_ePointType MILITARY_BASE
     m_fRadius 100
-    m_iCaptureOrder 3
     m_fGarrisonSpawnDistance 400
     m_fGarrisonDespawnDistance 500
     m_fGarrisonPatrolRadius 200

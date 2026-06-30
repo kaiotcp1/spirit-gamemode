@@ -81,7 +81,6 @@ As formas sao procedurais. Nao ha dependencia de textura nova.
 
 | Estado | Cor |
 |---|---|
-| `LOCKED` | Vermelho escuro |
 | `FRONTLINE` | Vermelho |
 | `UNDER_ATTACK` | Laranja |
 | `CLEARED_WAITING` | Amarelo |
@@ -101,19 +100,13 @@ Ao passar o mouse sobre um icone, o tooltip mostra:
 - manpower;
 - situacao/onda dos reforcos.
 
-## Relacao com a progressao manual
+## Relacao com a campanha livre
 
 O mapa apenas apresenta o estado calculado pelo Warfare.
 
-A ordem de captura nao e configurada no mapa. HQs dedicados representam a
-ordem `0`; objetivos `SPT_WarfarePoint` usam o atributo `Capture Order` a partir
-de `1`:
-
-- `0`: `SPT_WarfareHQ` aliado, ja capturado e sem guarnicao hostil;
-- `1`: primeira frente;
-- `2+`: etapas seguintes.
-
-Quando uma ordem inteira e capturada, o servidor muda os pontos da proxima ordem para `FRONTLINE` e replica a atualizacao para o mapa.
+HQs dedicados representam as origens aliadas. Todos os objetivos
+`SPT_WarfarePoint` iniciam como `FRONTLINE`, aparecem no mapa e podem ser
+atacados em qualquer sequencia. Cada captura e replicada imediatamente.
 
 ## Checklist de teste
 

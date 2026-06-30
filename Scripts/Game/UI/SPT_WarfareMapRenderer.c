@@ -389,7 +389,6 @@ class SPT_WarfareMapRenderer : Managed
 
 	protected string GetStateName(SPT_EWarfarePointState state)
 	{
-		if (state == SPT_EWarfarePointState.LOCKED) return "Bloqueada";
 		if (state == SPT_EWarfarePointState.FRONTLINE) return "Linha de frente";
 		if (state == SPT_EWarfarePointState.UNDER_ATTACK) return "Sob ataque";
 		if (state == SPT_EWarfarePointState.CLEARED_WAITING) return "Limpa, aguardando captura";
@@ -400,7 +399,6 @@ class SPT_WarfareMapRenderer : Managed
 
 	protected int GetStateColor(SPT_EWarfarePointState state)
 	{
-		if (state == SPT_EWarfarePointState.LOCKED) return ARGB(255, 130, 20, 20);
 		if (state == SPT_EWarfarePointState.FRONTLINE) return ARGB(255, 225, 45, 35);
 		if (state == SPT_EWarfarePointState.UNDER_ATTACK) return ARGB(255, 255, 145, 20);
 		if (state == SPT_EWarfarePointState.CLEARED_WAITING) return ARGB(255, 245, 220, 35);

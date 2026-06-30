@@ -5,6 +5,15 @@ enum SPT_EGarrisonFaction
 	INDEPENDENT
 }
 
+enum SPT_EGarrisonStreamingState
+{
+	INACTIVE,
+	SPAWNING,
+	ACTIVE,
+	STREAMING_OUT,
+	CACHED
+}
+
 //! Rastreia metadados de um grupo de guarnicao spawnado para que o stream-out
 //! possa salvar o prefab e a posicao corretos de volta no cache.
 class SPT_GroupSpawnRecord : Managed
@@ -86,8 +95,7 @@ class SPT_GarrisonLocation : Managed
 	vector m_vCenter;
 	string m_sName;
 	int m_iDescriptorType;
-	bool m_bActive;
-	bool m_bSpawning;
+	SPT_EGarrisonStreamingState m_eStreamingState = SPT_EGarrisonStreamingState.INACTIVE;
 	bool m_bUnavailable;
 	//! Localizacao protegida por scripts externos; nunca recebe IA hostil.
 	bool m_bSafe;
@@ -96,8 +104,8 @@ class SPT_GarrisonLocation : Managed
 	bool m_bHasCachedSnapshot;
 	bool m_bCleared;
 	//! Verdadeiro quando o Warfare solicitou monitoramento de primeira
-	//! baixa nesta localizacao. Desacoplado de m_bActive para evitar que
-	//! locais LOCKED disparem eventos de baixa prematuramente.
+	//! baixa nesta localizacao. Desacoplado do estado ACTIVE para evitar que
+	//! locais sem monitoramento explicito disparem eventos prematuramente.
 	bool m_bMonitoringEnabled;
 	//! Verdadeiro quando a primeira baixa da guarnicao foi detectada.
 	//! Usado pelo Warfare para disparar reforcos uma unica vez.
@@ -135,6 +143,36 @@ class SPT_GarrisonLocation : Managed
 		m_sLocationId = locationId;
 		if (m_sLocationId.IsEmpty())
 			m_sLocationId = GenerateLocationId(name, descriptorType, center);
+	}
+
+	bool IsInactive()
+	{
+		return m_eStreamingState == SPT_EGarrisonStreamingState.INACTIVE;
+	}
+
+	bool IsSpawning()
+	{
+		return m_eStreamingState == SPT_EGarrisonStreamingState.SPAWNING;
+	}
+
+	bool IsActive()
+	{
+		return m_eStreamingState == SPT_EGarrisonStreamingState.ACTIVE;
+	}
+
+	bool IsStreamingOut()
+	{
+		return m_eStreamingState == SPT_EGarrisonStreamingState.STREAMING_OUT;
+	}
+
+	bool IsCached()
+	{
+		return m_eStreamingState == SPT_EGarrisonStreamingState.CACHED;
+	}
+
+	bool CanStartStreamingIn()
+	{
+		return IsInactive() || IsCached();
 	}
 
 	//! Gera um ID estavel a partir do nome e tipo do descritor.
@@ -551,6 +589,23 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 	protected float GetLocationSpawnDistance(notnull SPT_GarrisonLocation location)
 	{
 		return Math.Max(1.0, location.m_Config.m_fSpawnDistance);
+	}
+
+	protected void SetLocationStreamingState(
+		notnull SPT_GarrisonLocation location,
+		SPT_EGarrisonStreamingState newState,
+		string reason)
+	{
+		SPT_EGarrisonStreamingState oldState = location.m_eStreamingState;
+		if (oldState == newState)
+			return;
+
+		location.m_eStreamingState = newState;
+		Print(string.Format("[SPT_WorldGarrison] Estado de streaming | id=%1 | anterior=%2 | atual=%3 | motivo=%4",
+			location.m_sLocationId,
+			SCR_Enum.GetEnumName(SPT_EGarrisonStreamingState, oldState),
+			SCR_Enum.GetEnumName(SPT_EGarrisonStreamingState, newState),
+			reason));
 	}
 
 	protected float GetLocationDespawnDistance(notnull SPT_GarrisonLocation location)
@@ -1045,7 +1100,7 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 
 			foreach (SPT_GarrisonLocation emptyServerLocation : m_aLocations)
 			{
-				if (emptyServerLocation.m_bActive)
+				if (emptyServerLocation.IsActive())
 					DespawnLocation(emptyServerLocation);
 			}
 			return;
@@ -1059,7 +1114,7 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 				continue;
 			if (location.m_bCleared && !location.m_Battle.m_bActive)
 				continue;
-			if (location.m_bSpawning)
+			if (location.IsSpawning() || location.IsStreamingOut())
 				continue;
 
 			float nearestPlayerSq = GetNearestPlayerDistanceSq(location.m_vCenter, playerPositions);
@@ -1067,17 +1122,22 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			float spawnDistance = GetLocationSpawnDistance(location);
 			float spawnDistanceSq = spawnDistance * spawnDistance;
 			float effectiveDespawnDistance = GetLocationDespawnDistance(location);
-			if (location.m_bActive)
+			if (location.IsActive())
 				effectiveDespawnDistance = effectiveDespawnDistance + GetLocationDespawnHysteresis(location);
 			float effectiveDespawnSq = effectiveDespawnDistance * effectiveDespawnDistance;
 
 			if (logThisUpdate && nearestPlayerSq <= effectiveDespawnSq * 4)
 			{
-				DebugLog(string.Format("Distancia do local | nome=%1 | distancia=%2m | ativo=%3 | indisponivel=%4 | spawn=%5m | despawnEfetivo=%6m",
-					location.m_sName, Math.Sqrt(nearestPlayerSq), location.m_bActive, location.m_bUnavailable, spawnDistance, Math.Sqrt(effectiveDespawnSq)));
+				DebugLog(string.Format("Distancia do local | nome=%1 | distancia=%2m | estado=%3 | indisponivel=%4 | spawn=%5m | despawnEfetivo=%6m",
+					location.m_sName,
+					Math.Sqrt(nearestPlayerSq),
+					SCR_Enum.GetEnumName(SPT_EGarrisonStreamingState, location.m_eStreamingState),
+					location.m_bUnavailable,
+					spawnDistance,
+					Math.Sqrt(effectiveDespawnSq)));
 			}
 
-			if (!location.m_bActive && nearestPlayerSq <= spawnDistanceSq)
+			if (location.CanStartStreamingIn() && nearestPlayerSq <= spawnDistanceSq)
 			{
 				// Um snapshot vazio tem significado: esta localizacao foi
 				// completamente eliminada e nao deve receber uma guarnicao nova.
@@ -1093,7 +1153,7 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 				DebugLog(string.Format("Limite de spawn atingido para %1.", location.m_sName));
 				SpawnLocation(location);
 			}
-			else if (location.m_bActive && nearestPlayerSq > effectiveDespawnSq)
+			else if (location.IsActive() && nearestPlayerSq > effectiveDespawnSq)
 			{
 				DebugLog(string.Format("Limite de despawn atingido para %1.", location.m_sName));
 				DespawnLocation(location);
@@ -1374,6 +1434,10 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 
 	protected void ClearLocationForSafe(notnull SPT_GarrisonLocation location)
 	{
+		SetLocationStreamingState(
+			location,
+			SPT_EGarrisonStreamingState.STREAMING_OUT,
+			"limpeza de localizacao SAFE iniciada");
 		CancelPendingSpawns(location);
 		CancelPendingBattleSpawns(location);
 		location.m_Battle.m_bCancelled = true;
@@ -1392,8 +1456,10 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		location.m_aGroupRecords.Clear();
 		location.m_aCachedGroups.Clear();
 		location.m_bHasCachedSnapshot = true;
-		location.m_bActive = false;
-		location.m_bSpawning = false;
+		SetLocationStreamingState(
+			location,
+			SPT_EGarrisonStreamingState.INACTIVE,
+			"localizacao marcada como SAFE");
 		location.m_bUnavailable = false;
 		location.m_bCleared = true;
 		location.m_bFirstCasualtyTriggered = true;
@@ -1449,6 +1515,17 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		return true;
 	}
 
+	bool GetLocationStreamingState(string locationId, out SPT_EGarrisonStreamingState outState)
+	{
+		outState = SPT_EGarrisonStreamingState.INACTIVE;
+		SPT_GarrisonLocation location = FindLocationById(locationId);
+		if (!location)
+			return false;
+
+		outState = location.m_eStreamingState;
+		return true;
+	}
+
 	//! Inicia o monitoramento de primeira baixa para uma localizacao.
 	//! O snapshot do manpower inicial e adiado ate que todos os grupos
 	//! terminem de spawnar, para nao capturar um valor parcial.
@@ -1464,7 +1541,7 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		// Se o spawn ja terminou, captura o manpower agora.
 		// Caso contrario, o snapshot sera feito em CompletePendingGroup
 		// ou no proximo ciclo de MonitorGarrisonState.
-		if (!location.m_bSpawning)
+		if (!location.IsSpawning())
 		{
 			location.SnapInitialManpower();
 			DebugLog(string.Format("Monitoramento iniciado | id=%1 | manpowerInicial=%2",
@@ -1487,13 +1564,13 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		{
 			if (location.m_bSafe)
 				continue;
-			if (!location.m_bActive)
+			if (!location.IsActive())
 				continue;
 
 			// Apenas localizacoes com monitoramento explicito (via
 			// StartMonitoringLocation) disparam eventos de baixa.
-			// Isso impede que pontos LOCKED ou nao-inicializados
-			// disparem OnGarrisonFirstCasualty prematuramente.
+			// Isso impede que locais nao inicializados disparem
+			// OnGarrisonFirstCasualty prematuramente.
 			if (!location.m_bMonitoringEnabled)
 				continue;
 
@@ -1503,7 +1580,7 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			if (location.m_iInitialGarrisonManpower <= 0)
 			{
 				int currentGarrison = location.GetGarrisonManpower();
-				if (currentGarrison > 0 && !location.m_bSpawning)
+				if (currentGarrison > 0 && !location.IsSpawning())
 				{
 					location.SnapInitialManpower();
 					Print(string.Format("[SPT_WorldGarrison] Monitoramento re-capturado | id=%1 | nome=%2 | manpowerInicial=%3",
@@ -1531,9 +1608,9 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			// Log de diagnostico a cada ciclo para localizacoes monitoradas
 			if (m_bDebug)
 			{
-				Print(string.Format("[SPT_WorldGarrison][DEBUG] MonitorGarrisonState | id=%1 | ativo=%2 | cached=%3 | ativoManpower=%4 | filaGarrison=%5 | limpo=%6 | inicialManpower=%7",
+				Print(string.Format("[SPT_WorldGarrison][DEBUG] MonitorGarrisonState | id=%1 | estado=%2 | snapshotCache=%3 | ativoManpower=%4 | filaGarrison=%5 | limpo=%6 | inicialManpower=%7",
 					location.m_sLocationId,
-					location.m_bActive,
+					SCR_Enum.GetEnumName(SPT_EGarrisonStreamingState, location.m_eStreamingState),
 					location.m_bHasCachedSnapshot,
 					location.GetActiveGarrisonManpower(),
 					location.GetQueuedGarrisonRequests(),
@@ -1915,7 +1992,13 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		record.m_bIsBattleGroup = true;
 		record.m_rVehiclePrefab = config.m_rVehiclePrefab;
 		location.m_aGroupRecords.Insert(record);
-		location.m_bActive = true;
+		if (location.CanStartStreamingIn())
+		{
+			SetLocationStreamingState(
+				location,
+				SPT_EGarrisonStreamingState.ACTIVE,
+				"veiculo de batalha materializado");
+		}
 
 		SPT_AIGarrisonHelper.PatrolGroup(
 			group,
@@ -2169,7 +2252,10 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 
 		ShufflePositions(buildings);
 
-		location.m_bSpawning = true;
+		SetLocationStreamingState(
+			location,
+			SPT_EGarrisonStreamingState.SPAWNING,
+			"spawn inicial iniciado");
 		location.m_iPendingGroups = 0;
 		location.m_iSuccessfulGroups = 0;
 		location.m_iDesiredUnits = 0;
@@ -2280,7 +2366,10 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 
 		if (requests.IsEmpty())
 		{
-			location.m_bSpawning = false;
+			SetLocationStreamingState(
+				location,
+				SPT_EGarrisonStreamingState.INACTIVE,
+				"nenhuma requisicao de spawn valida");
 			location.RefreshClearedState();
 			Print(string.Format("[SPT_WorldGarrison] Falha ao criar grupos para %1.", location.m_sName), LogLevel.ERROR);
 			return;
@@ -2296,7 +2385,10 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 	//! stream-out sao respawnados. Grupos totalmente eliminados sao ignorados.
 	protected void SpawnLocationFromCache(notnull SPT_GarrisonLocation location)
 	{
-		location.m_bSpawning = true;
+		SetLocationStreamingState(
+			location,
+			SPT_EGarrisonStreamingState.SPAWNING,
+			"restauracao de cache iniciada");
 		location.m_iPendingGroups = 0;
 		location.m_iSuccessfulGroups = 0;
 		location.m_iDesiredUnits = 0;
@@ -2417,7 +2509,13 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 
 		if (location.m_aGroupIds.IsEmpty())
 		{
-			location.m_bSpawning = false;
+			SPT_EGarrisonStreamingState failedRestoreState = SPT_EGarrisonStreamingState.INACTIVE;
+			if (location.m_bHasCachedSnapshot)
+				failedRestoreState = SPT_EGarrisonStreamingState.CACHED;
+			SetLocationStreamingState(
+				location,
+				failedRestoreState,
+				"cache nao materializou grupos ativos");
 			location.RefreshClearedState();
 			if (location.m_bCleared)
 			{
@@ -2498,7 +2596,10 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		m_aPendingSpawns.Remove(0);
 
 		if (req)
+		{
 			DoSpawnSingle(req);
+			TryCompleteLocationSpawn(req.m_Location);
+		}
 
 		if (!m_aPendingSpawns || m_aPendingSpawns.IsEmpty())
 		{
@@ -2665,9 +2766,6 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			return;
 		}
 
-		if (!req.m_bIsFromCache && !req.m_bIsBattleSpawn)
-			location.m_iTargetManpower = location.m_iTargetManpower + groupCapacity;
-
 		if (spawnedUnits < 1)
 		{
 			if (groupCapacity < 1)
@@ -2689,6 +2787,9 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			}
 			return;
 		}
+
+		if (!req.m_bIsFromCache && !req.m_bIsBattleSpawn)
+			location.m_iTargetManpower = location.m_iTargetManpower + spawnedUnits;
 
 		// Cache restore nao consome budget, apenas spawns frescos
 		if (!req.m_bIsFromCache)
@@ -3046,6 +3147,10 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 
 	protected void DespawnLocation(notnull SPT_GarrisonLocation location)
 	{
+		SetLocationStreamingState(
+			location,
+			SPT_EGarrisonStreamingState.STREAMING_OUT,
+			"limite de despawn atingido");
 		CancelPendingSpawns(location);
 
 		if (IsLocationCachingEnabled(location))
@@ -3143,23 +3248,34 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			}
 			location.m_Battle.m_aVehicleIds.Clear();
 
-			// Dados cacheados sao estado de stream-out, nao uma entidade
-			// ativa no mundo. Mantem ativo apenas enquanto um grupo nao
-			// pode ser removido.
-			location.m_bActive = !location.m_aGroupIds.IsEmpty();
-			location.m_bSpawning = false;
+			// Dados cacheados nao sao entidades ativas. Se alguma entidade nao
+			// puder ser removida, a localizacao volta a ACTIVE para nova tentativa.
+			if (!location.m_aGroupIds.IsEmpty())
+			{
+				SetLocationStreamingState(
+					location,
+					SPT_EGarrisonStreamingState.ACTIVE,
+					"stream-out reteve grupos ativos");
+			}
+			else
+			{
+				SetLocationStreamingState(
+					location,
+					SPT_EGarrisonStreamingState.CACHED,
+					"snapshot de sobreviventes concluido");
+			}
 			location.m_iPendingGroups = 0;
 			location.m_iSuccessfulGroups = 0;
 			location.RefreshClearedState();
 
-			Print(string.Format("[SPT_WorldGarrison] Stream-out de %1 | novosCacheados=%2 | totalCacheados=%3 | unidadesCacheadas=%4 | eliminados=%5 | retidos=%6 | ativo=%7 | snapshot=%8",
+			Print(string.Format("[SPT_WorldGarrison] Stream-out de %1 | novosCacheados=%2 | totalCacheados=%3 | unidadesCacheadas=%4 | eliminados=%5 | retidos=%6 | estado=%7 | snapshot=%8",
 				location.m_sName,
 				cachedCount,
 				location.m_aCachedGroups.Count(),
 				location.GetCachedManpower(),
 				eliminatedCount,
 				retainedCount,
-				location.m_bActive,
+				SCR_Enum.GetEnumName(SPT_EGarrisonStreamingState, location.m_eStreamingState),
 				location.m_bHasCachedSnapshot));
 			Print(string.Format("[SPT_WorldGarrison] Estado de forca em %1 | manpowerTotal=%2/%3 | budgetRestante=%4 | limpo=%5",
 				location.m_sName,
@@ -3188,8 +3304,20 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			foreach (EntityID pendingGroupId : pendingGroupIds)
 				location.m_aGroupIds.Insert(pendingGroupId);
 
-			location.m_bActive = !pendingGroupIds.IsEmpty();
-			location.m_bSpawning = false;
+			if (!pendingGroupIds.IsEmpty())
+			{
+				SetLocationStreamingState(
+					location,
+					SPT_EGarrisonStreamingState.ACTIVE,
+					"despawn reteve grupos ativos");
+			}
+			else
+			{
+				SetLocationStreamingState(
+					location,
+					SPT_EGarrisonStreamingState.INACTIVE,
+					"despawn concluido sem cache");
+			}
 			location.m_iPendingGroups = 0;
 			location.m_iSuccessfulGroups = 0;
 			location.RefreshClearedState();
@@ -3214,19 +3342,41 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		if (location.m_iPendingGroups > 0)
 			location.m_iPendingGroups--;
 
-		if (location.m_iPendingGroups > 0)
+		TryCompleteLocationSpawn(location);
+	}
+
+	//! Finaliza um ciclo de spawn somente quando nao restam requisicoes na fila
+	//! nem grupos materializados aguardando o callback WaitForGroupMembers.
+	//! Pode ser chamado por qualquer caminho terminal sem alterar contadores.
+	protected void TryCompleteLocationSpawn(SPT_GarrisonLocation location)
+	{
+		if (!location || !location.IsSpawning())
 			return;
 
-		// So finaliza o estado de spawn quando TODOS os grupos da fila
-		// foram processados pelo DoSpawnSingle. Sem esta guarda,
-		// CompletePendingGroup do primeiro grupo zera m_iPendingGroups
-		// enquanto os demais ainda estao na fila, causando snapshot
-		// prematuro do manpower.
-		if (location.m_iQueuedSpawnUnits > 0)
+		if (location.m_iPendingGroups > 0 || location.m_iQueuedSpawnUnits > 0)
 			return;
 
-		location.m_bSpawning = false;
-		location.m_bActive = location.m_iSuccessfulGroups > 0;
+		if (location.m_iSuccessfulGroups > 0)
+		{
+			SetLocationStreamingState(
+				location,
+				SPT_EGarrisonStreamingState.ACTIVE,
+				"spawn concluido");
+		}
+		else if (location.m_bHasCachedSnapshot)
+		{
+			SetLocationStreamingState(
+				location,
+				SPT_EGarrisonStreamingState.CACHED,
+				"spawn falhou e cache foi preservado");
+		}
+		else
+		{
+			SetLocationStreamingState(
+				location,
+				SPT_EGarrisonStreamingState.INACTIVE,
+				"spawn concluido sem grupos");
+		}
 
 		// Se o Warfare pediu monitoramento enquanto o spawn ainda estava
 		// em andamento, captura o manpower inicial agora que esta estavel.
@@ -3241,7 +3391,7 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 
 		location.RefreshClearedState();
 
-		if (location.m_bActive)
+		if (location.IsActive())
 		{
 			Print(string.Format("[SPT_WorldGarrison] Guarnicao pronta em %1 | gruposBemSucedidos=%2 | gruposRastreados=%3 | manpower=%4/%5 | budgetRestante=%6",
 				location.m_sName,

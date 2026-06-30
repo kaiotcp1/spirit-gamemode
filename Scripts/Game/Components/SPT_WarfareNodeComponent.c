@@ -30,7 +30,6 @@ class SPT_WarfareNodeComponent : ScriptComponent
 	float GetRadius() { return m_fRadius; }
 	void SetRadius(float radius) { m_fRadius = radius; }
 
-	int GetCaptureOrder() { return -1; }
 	bool IsHQ() { return false; }
 	bool CountsForVictory() { return false; }
 }
