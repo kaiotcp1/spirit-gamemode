@@ -385,6 +385,13 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 			return;
 		}
 
+		ConfigureManualMissions();
+		if (m_bManualConfigurationInvalid)
+		{
+			Print("[SPT_Warfare] ERRO: Falha ao configurar missoes manuais. Warfare desabilitado.", LogLevel.ERROR);
+			return;
+		}
+
 		// 6. Subscreve aos eventos da guarnicao
 		SubscribeToGarrisonEvents();
 
@@ -502,6 +509,7 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 
 			data.m_sGarrisonLocationId = pointId;
 			data.m_GarrisonConfig = hostilePoint.CreateGarrisonConfig();
+			data.m_MissionConfig = hostilePoint.CreateMissionConfig();
 		}
 
 		m_mPointsById.Set(pointId, data);
@@ -540,6 +548,32 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 		}
 	}
 
+	protected void ConfigureManualMissions()
+	{
+		SPT_WarfareMissionManagerComponent missionManager = SPT_WarfareMissionManagerComponent.GetInstance();
+		if (!missionManager)
+		{
+			Print("[SPT_Warfare] ERRO: WarfareMissionManager nao encontrado.", LogLevel.ERROR);
+			m_bManualConfigurationInvalid = true;
+			return;
+		}
+
+		missionManager.ResetRegistrations();
+		foreach (string pointId : m_aPointOrder)
+		{
+			SPT_WarfarePointData point = m_mPointsById.Get(pointId);
+			if (!point || point.m_bIsHQ || !point.m_MissionConfig || !point.m_MissionConfig.m_bEnabled)
+				continue;
+
+			if (!missionManager.RegisterMission(
+				pointId, point.m_sDisplayName, point.m_vCenter, point.m_MissionConfig))
+			{
+				Print(string.Format("[SPT_Warfare] ERRO: Falha ao registrar missao %1.", pointId), LogLevel.ERROR);
+				m_bManualConfigurationInvalid = true;
+			}
+		}
+	}
+
 	//-----------------------------------------------------------------------
 	// VALIDACAO DA CONFIGURACAO
 	//-----------------------------------------------------------------------
@@ -569,6 +603,20 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 				Print(string.Format("[SPT_Warfare] ERRO: Ponto inimigo %1 nao possui guarnicao vinculada.",
 					pointId), LogLevel.ERROR);
 				valid = false;
+			}
+
+			if (!data.m_bIsHQ && data.m_MissionConfig && data.m_MissionConfig.m_bEnabled)
+			{
+				if (data.m_MissionConfig.m_eType == SPT_EWarfareMissionType.NONE)
+				{
+					Print(string.Format("[SPT_Warfare] ERRO: Missao habilitada sem tipo em %1.", pointId), LogLevel.ERROR);
+					valid = false;
+				}
+				if (data.m_MissionConfig.m_rScenarioPrefab.IsEmpty())
+				{
+					Print(string.Format("[SPT_Warfare] ERRO: Missao habilitada sem prefab em %1.", pointId), LogLevel.ERROR);
+					valid = false;
+				}
 			}
 		}
 

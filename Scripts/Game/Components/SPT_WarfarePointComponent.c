@@ -107,12 +107,44 @@ class SPT_WarfarePointComponent : SPT_WarfareNodeComponent
 	[Attribute("", desc: "Veiculos e grupos de tripulacao usados pelos comboios desta area.", category: "Garrison Battle")]
 	protected ref array<ref SPT_BattleVehicleConfig> m_aBattleVehicles;
 
+	[Attribute("0", desc: "Ativa uma missao independente da captura territorial neste ponto.", category: "Mission")]
+	protected bool m_bMissionEnabled;
+
+	[Attribute(SPT_EWarfareMissionType.NONE.ToString(), UIWidgets.ComboBox, "Tipo da missao.", "", ParamEnumArray.FromEnum(SPT_EWarfareMissionType), category: "Mission")]
+	protected SPT_EWarfareMissionType m_eMissionType;
+
+	[Attribute("{69BC100100000000}Prefabs/Warfare/Missions/SPT_DestroyAmmoCacheScenario.et", UIWidgets.ResourceNamePicker, desc: "Prefab composto replicavel contendo o ambiente e um objetivo de missao.", params: "et", category: "Mission")]
+	protected ResourceName m_rMissionScenarioPrefab;
+
+	[Attribute("800", desc: "Distancia em metros para ativar a missao quando um jogador se aproxima.", category: "Mission")]
+	protected float m_fMissionActivationDistance;
+
+	[Attribute("100", desc: "Raio em metros para buscar terreno adequado ao redor do WarfarePoint.", category: "Mission")]
+	protected float m_fMissionTerrainSearchRadius;
+
+	[Attribute("12", desc: "Inclinacao maxima aproximada do terreno em graus.", category: "Mission")]
+	protected float m_fMissionMaximumSlopeDegrees;
+
 	//-----------------------------------------------------------------------
 	// GETTERS/SETTERS
 	//-----------------------------------------------------------------------
 
 	override bool IsHQ() { return false; }
 	override bool CountsForVictory() { return m_bCountsForVictory; }
+
+	SPT_WarfareMissionConfig CreateMissionConfig()
+	{
+		SPT_WarfareMissionConfig config = new SPT_WarfareMissionConfig();
+		config.m_bEnabled = m_bMissionEnabled;
+		config.m_eType = m_eMissionType;
+
+		config.m_rScenarioPrefab = m_rMissionScenarioPrefab;
+
+		config.m_fActivationDistance = Math.Max(m_fMissionActivationDistance, 1.0);
+		config.m_fTerrainSearchRadius = Math.Max(m_fMissionTerrainSearchRadius, 0.0);
+		config.m_fMaximumSlopeDegrees = Math.Clamp(m_fMissionMaximumSlopeDegrees, 0.0, 45.0);
+		return config;
+	}
 
 	SPT_GarrisonLocationConfig CreateGarrisonConfig()
 	{

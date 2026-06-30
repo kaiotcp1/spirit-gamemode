@@ -29,6 +29,35 @@ enum SPT_EWarfarePointType
 	CUSTOM
 }
 
+//! Tipos de missao opcionais vinculados a um WarfarePoint.
+enum SPT_EWarfareMissionType
+{
+	NONE,
+	//! Destruir um cache de municao composto por 4 caixas de equipamento.
+	//! Usa o prefab vanilla EquipmentBoxStack_US_01_V4_covered (4x).
+	//! GUID: {09321D1470C3625E}
+	DESTROY_AMMO_CACHE
+}
+
+//! Estado independente da captura territorial.
+enum SPT_EWarfareMissionState
+{
+	INACTIVE,
+	ACTIVE,
+	COMPLETED
+}
+
+//! Configuracao copiada do componente colocado no mapa.
+class SPT_WarfareMissionConfig : Managed
+{
+	bool m_bEnabled;
+	SPT_EWarfareMissionType m_eType;
+	ResourceName m_rScenarioPrefab;
+	float m_fActivationDistance = 800.0;
+	float m_fTerrainSearchRadius = 100.0;
+	float m_fMaximumSlopeDegrees = 12.0;
+}
+
 class SPT_GarrisonLocationConfig : Managed
 {
 	float m_fSpawnDistance = 1200.0;
@@ -96,6 +125,9 @@ class SPT_WarfarePointData : Managed
 
 	//! Configuracao hostil. Permanece nula para HQs.
 	ref SPT_GarrisonLocationConfig m_GarrisonConfig;
+
+	//! Configuracao de missao hostil. Permanece nula para HQs.
+	ref SPT_WarfareMissionConfig m_MissionConfig;
 
 	void SPT_WarfarePointData()
 	{
