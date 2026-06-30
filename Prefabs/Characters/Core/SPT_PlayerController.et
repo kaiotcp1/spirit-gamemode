@@ -3,5 +3,7 @@ SCR_PlayerController : "{CD2B8EF361478648}Prefabs/Characters/Core/DefaultPlayerC
  components {
   SCR_PlayerDeployMenuHandlerComponent "{69C30B7E6A60F2D2}" {
   }
+  SPT_PlayerMissionRpcComponent "{69C30B7E6A60F2D3}" {
+  }
  }
 }

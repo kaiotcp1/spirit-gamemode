@@ -62,9 +62,13 @@ $grp GenericEntity : "{B1F6A2439C8D7500}Prefabs/Warfare/SPT_WarfarePoint.et" {
     m_fGarrisonSpawnDistance 400
     m_fGarrisonDespawnDistance 500
     m_fGarrisonPatrolRadius 200
+    m_bMissionEnabled 1
+    m_eMissionType DESTROY_AMMO_CACHE
+    m_fMissionTerrainSearchRadius 20
    }
   }
-  coords 1398.746 10.904 1855.637
+  coords 1380.214 9.663 1862.45
+  angles 3.569 -0.168 -2.689
  }
 }
 $grp GenericEntity : "{CCC00D009D4949B0}Prefabs/Weapons/Explosives/Mine_TM62M/Mine_TM62M_base.et" {
@@ -75,25 +79,13 @@ $grp GenericEntity : "{CCC00D009D4949B0}Prefabs/Weapons/Explosives/Mine_TM62M/Mi
   coords 3157.098 11.563 2806.64
  }
 }
-$grp GenericEntity : "{D4A8C0512E7B9400}Prefabs/Warfare/SPT_WarfareHQ.et" {
- {
-  components {
-   SPT_WarfareHQComponent "{D4A8C0512E7B9402}" {
-    m_sPointId "HQ_PLAYER"
-    m_sDisplayName "Base Inicial"
-    m_fRadius 250
-   }
+GenericEntity : "{D4A8C0512E7B9400}Prefabs/Warfare/SPT_WarfareHQ.et" {
+ components {
+  SPT_WarfareHQComponent "{D4A8C0512E7B9402}" {
+   m_sPointId "HQ_PLAYER 2"
+   m_sDisplayName "Base Inicial 2"
+   m_fRadius 250
   }
-  coords 1280.475 37.509 2941.303
  }
- {
-  components {
-   SPT_WarfareHQComponent "{D4A8C0512E7B9402}" {
-    m_sPointId "HQ_PLAYER 2"
-    m_sDisplayName "Base Inicial 2"
-    m_fRadius 250
-   }
-  }
-  coords 1134.855 38.001 2836.099
- }
+ coords 1134.855 38.001 2836.099
 }

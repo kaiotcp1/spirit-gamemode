@@ -74,6 +74,25 @@ SCR_BaseGameMode GameModeSF : "{ECEEDB2D3737204B}Prefabs/Systems/ScenarioFramewo
   SPT_WarfareGameModeComponent "{69BA190E4062431D}" {
    m_rRespawnEnvironmentPrefab "{F1C5F8E2EF1105F9}Prefabs/Compositions/Misc/SubCompositions/Tent_HQ_Camo_Cluttered_US_01.et"
   }
+  SPT_WarfareMissionManagerComponent "{69BC000100000001}" {
+  }
+  EPF_PersistenceManagerComponent "{69BC000100000005}" {
+   m_pConnectionInfo EDF_JsonFileDbConnectionInfo "{69BC000100000006}" {
+    m_sDatabaseName "SPT_GAME.Warfare"
+   }
+  }
+  EPF_PersistenceComponent "{69BC000100000002}" {
+   m_bSelfSpawn 0
+   m_bSelfDelete 0
+   m_pSaveData SPT_WarfareGameModeSaveDataClass "{69BC000100000003}" {
+    m_eTranformSaveFlags 0
+    m_bSaveRemainingLifetime 0
+    m_aComponents {
+     SPT_WarfareMissionManagerSaveDataClass "{69BC000100000004}" {
+     }
+    }
+   }
+  }
   SPT_WorldGarrisonManagerComponent "{69B768A2ED652C20}" {
   }
  }
