@@ -79,6 +79,33 @@ SCR_BaseGameMode SPT_GameModeSF : "{ECEEDB2D3737204B}Prefabs/Systems/ScenarioFra
   SCR_GameModeSFManager "{5A96783ABCA252AE}" {
    m_bDynamicDespawn 1
   }
+  SCR_RespawnSystemComponent "{56B2B4793051E7C9}" {
+   Enabled 0
+   components {
+    SCR_FreeSpawnHandlerComponent "{5CD2860C681CE021}" {
+     Enabled 0
+    }
+    SCR_PossessSpawnHandlerComponent "{5CD2D12697D089D4}" {
+     Enabled 0
+    }
+    SCR_SpawnPointSpawnHandlerComponent "{5CD2D126957998DF}" {
+     Enabled 0
+    }
+   }
+  }
+  SCR_RespawnSystemComponent "{69BD731722CBBBDC}" {
+   components {
+    SCR_FreeSpawnHandlerComponent "{69BD7317547D5430}" {
+    }
+    SCR_PossessSpawnHandlerComponent "{69BD731752E7FF9F}" {
+    }
+    SCR_SpawnPointSpawnHandlerComponent "{69BD7317453451C7}" {
+    }
+   }
+   m_SpawnLogic SCR_MenuSpawnLogic "{69BD731748AE92F7}" {
+    m_bUseFadeEffect 1
+   }
+  }
   SPT_CityDebugComponent "{69B768A2ED652C1A}" {
    Enabled 0
   }
@@ -89,11 +116,14 @@ SCR_BaseGameMode SPT_GameModeSF : "{ECEEDB2D3737204B}Prefabs/Systems/ScenarioFra
    m_bDefaultRequiresTool 0
   }
   SPT_WarfareGameModeComponent "{69BA190E4062431D}" {
+   m_sPlayerFactionKey "USSR"
+   m_sEnemyFactionKey "US"
    m_rRespawnEnvironmentPrefab "{F1C5F8E2EF1105F9}Prefabs/Compositions/Misc/SubCompositions/Tent_HQ_Camo_Cluttered_US_01.et"
   }
   SPT_WarfareMissionManagerComponent "{69BC000100000001}" {
   }
   SPT_WorldGarrisonManagerComponent "{69B768A2ED652C20}" {
+   m_bDebug 1
   }
  }
  coords 1891.659 11.326 1821.161

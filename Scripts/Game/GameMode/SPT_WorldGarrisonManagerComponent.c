@@ -414,6 +414,11 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		return s_Instance;
 	}
 
+	bool IsDebugEnabled()
+	{
+		return m_bDebug;
+	}
+
 	[Attribute("0", desc: "Enable detailed diagnostic logs with the [SPT_WorldGarrison][DEBUG] prefix")]
 	protected bool m_bDebug;
 

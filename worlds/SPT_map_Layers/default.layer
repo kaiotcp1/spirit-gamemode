@@ -2,8 +2,8 @@ $grp GenericEntity : "{B1F6A2439C8D7500}Prefabs/Warfare/SPT_WarfarePoint.et" {
  {
   components {
    SPT_WarfarePointComponent "{B1F6A2439C8D7502}" {
-    m_sPointId "CIDADE_1"
-    m_sDisplayName "Area Militar 1"
+    m_sPointId "Cidade_Beauregard"
+    m_sDisplayName "Cidade de Beauregard"
     m_ePointType CITY
     m_fGarrisonSpawnDistance 800
     m_fGarrisonDespawnDistance 800
@@ -32,11 +32,11 @@ $grp GenericEntity : "{B1F6A2439C8D7500}Prefabs/Warfare/SPT_WarfarePoint.et" {
     m_aBattleGroupPrefabs {
      "{B7AB5D3F8A7ADAE4}Prefabs/Groups/BLUFOR/Group_US_PlatoonHQ.et"
     }
-    m_eMissionType DESTROY_AMMO_CACHE
+    m_eMissionType STEAL_INTELLIGENCE
     m_fMissionActivationDistance 200
    }
   }
-  coords 3143.604 11.5 2771.175
+  coords 3124.949 11.625 2776.794
  }
  {
   components {
@@ -45,16 +45,22 @@ $grp GenericEntity : "{B1F6A2439C8D7500}Prefabs/Warfare/SPT_WarfarePoint.et" {
     m_sDisplayName "Base Militar Aeroporto"
     m_ePointType MILITARY_BASE
     m_fRadius 100
-    m_fGarrisonSpawnDistance 400
+    m_fGarrisonSpawnDistance 300
     m_fGarrisonDespawnDistance 400
     m_fGarrisonPatrolRadius 200
     m_iGarrisonSpawnIntervalMs 2000
     m_fBattleConvoyWeight 0.45
-    m_eMissionType SABOTAGE_COMMUNICATIONS
+    m_aBattleVehicles {
+     SPT_BattleVehicleConfig "{B1F6A2439C8D7503}" {
+      m_rVehiclePrefab "{3EA6F47D95867114}Prefabs/Vehicles/Wheeled/M998/M1025_armed_M2HB.et"
+     }
+    }
+    m_eMissionType DESTROY_FUEL_DEPOT
     m_fMissionActivationDistance 200
    }
   }
-  coords 1387.854 36.219 2365.719
+  coords 1384.744 36.353 2374.739
+  angles 0.817 -27.156 1.592
  }
  {
   components {
@@ -66,7 +72,8 @@ $grp GenericEntity : "{B1F6A2439C8D7500}Prefabs/Warfare/SPT_WarfarePoint.et" {
     m_fGarrisonSpawnDistance 400
     m_fGarrisonDespawnDistance 500
     m_fGarrisonPatrolRadius 200
-    m_eMissionType ELIMINATE_OFFICER
+    m_iGarrisonLocationBudget 40
+    m_eMissionType DESTROY_FUEL_DEPOT
     m_fMissionActivationDistance 200
     m_fMissionTerrainSearchRadius 20
    }
@@ -84,6 +91,7 @@ $grp GenericEntity : "{B1F6A2439C8D7500}Prefabs/Warfare/SPT_WarfarePoint.et" {
     m_fGarrisonSpawnDistance 400
     m_fGarrisonDespawnDistance 500
     m_fGarrisonPatrolRadius 200
+    m_iGarrisonLocationBudget 25
     m_aGarrisonCQBGroupPrefabs {
      ""
      ""
@@ -178,5 +186,6 @@ GenericEntity : "{D4A8C0512E7B9400}Prefabs/Warfare/SPT_WarfareHQ.et" {
    m_fRadius 250
   }
  }
- coords 1345.469 37.778 2970.094
+ coords 1342.78 37.711 2972.478
+ angles -0.895 0 0
 }
