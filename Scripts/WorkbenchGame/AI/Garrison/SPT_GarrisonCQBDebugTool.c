@@ -21,6 +21,7 @@ enum SPT_EGarrisonCQBDebugView
 	REJECT_DOOR_CLEARANCE,
 	REJECT_OCCUPIED,
 	AVAILABLE,
+	AVAILABLE_GRAPH,
 	DOORS,
 	OPENINGS_EXTERIOR,
 	OPENINGS_INTERIOR,
@@ -461,6 +462,9 @@ class SPT_GarrisonCQBDebugTool : WorldEditorTool
 		case SPT_EGarrisonCQBDebugView.AVAILABLE:
 			DrawPoints(debugData.m_aAvailable, m_fPointRadius * 1.35, m_ColorAvailable.PackToInt(), shapeFlags);
 			break;
+		case SPT_EGarrisonCQBDebugView.AVAILABLE_GRAPH:
+			DrawAvailableGraph(debugData, shapeFlags);
+			break;
 		case SPT_EGarrisonCQBDebugView.DOORS:
 			DrawPoints(debugData.m_aDoors, m_fPointRadius * 1.7, m_ColorOpening.PackToInt(), shapeFlags);
 			break;
@@ -531,6 +535,30 @@ class SPT_GarrisonCQBDebugTool : WorldEditorTool
 		}
 	}
 
+	protected void DrawAvailableGraph(
+		notnull SPT_GarrisonDetectionDebug debugData,
+		ShapeFlags shapeFlags)
+	{
+		DrawPoints(debugData.m_aAvailable, m_fPointRadius * 1.35, m_ColorAvailable.PackToInt(), shapeFlags);
+		float maxDistanceSq = 2.75 * 2.75;
+		for (int i = 0; i < debugData.m_aAvailable.Count(); i++)
+		{
+			for (int j = i + 1; j < debugData.m_aAvailable.Count(); j++)
+			{
+				vector from = debugData.m_aAvailable[i];
+				vector to = debugData.m_aAvailable[j];
+				if (Math.AbsFloat(to[1] - from[1]) > 2.75)
+					continue;
+				if (vector.DistanceSq(from, to) > maxDistanceSq)
+					continue;
+				m_DebugShapeManager.AddLine(
+					from + Vector(0, 0.12, 0),
+					to + Vector(0, 0.12, 0),
+					m_ColorContained.PackToInt());
+			}
+		}
+	}
+
 	protected void PrintCurrentLegend()
 	{
 		string description;
@@ -598,6 +626,9 @@ class SPT_GarrisonCQBDebugTool : WorldEditorTool
 			break;
 		case SPT_EGarrisonCQBDebugView.AVAILABLE:
 			description = "AVAILABLE: verde vivo=candidatos entregues ao seletor final.";
+			break;
+		case SPT_EGarrisonCQBDebugView.AVAILABLE_GRAPH:
+			description = "AVAILABLE_GRAPH: verde=pontos; linhas=vizinhos geometricos ate 2.75m. O runtime ainda valida cada aresta no navmesh.";
 			break;
 		case SPT_EGarrisonCQBDebugView.DOORS:
 			description = "DOORS: laranja=origens das entidades com BaseDoorComponent.";

@@ -19,6 +19,11 @@ class SPT_GarrisonHold
 	}
 }
 
+class SPT_GarrisonPatrolLinks
+{
+	ref array<int> m_aNeighbors = {};
+}
+
 // Rede de patrulha de um grupo entre os pontos internos das construcoes da area.
 class SPT_GarrisonInteriorPatrol
 {
@@ -35,6 +40,8 @@ class SPT_GarrisonInteriorPatrol
 	ref array<int> m_aRecentPosts = {};
 	SCR_EAIGroupFormation m_eFormation;
 	EMovementType m_eMovementType;
+	bool m_bUseAvailableGraph;
+	ref array<ref SPT_GarrisonPatrolLinks> m_aGraph = {};
 
 	void SPT_GarrisonInteriorPatrol(
 		SCR_AIGroup group,
@@ -77,6 +84,9 @@ class SPT_GarrisonManager
 	protected const float PATROL_WAYPOINT_RADIUS_FACTOR = 0.50;
 	protected const int   PATROL_RECENT_POST_LIMIT = 3;
 	protected const int   PATROL_TOP_CANDIDATE_COUNT = 3;
+	protected const float CQB_GRAPH_EDGE_MAX_DISTANCE_M = 2.75;
+	protected const float CQB_GRAPH_EDGE_MAX_Y_M = 2.75;
+	protected const float CQB_GRAPH_AREA_RADIUS_M = 25.0;
 	protected const ResourceName DEFAULT_PATROL_WAYPOINT_PREFAB = "{FFF9518F73279473}PrefabsEditable/Auto/AI/Waypoints/E_AIWaypoint_Move.et";
 
 	protected static ref SPT_GarrisonManager s_Instance;
@@ -299,8 +309,17 @@ class SPT_GarrisonManager
 		GatherOccupied(excluded);
 
 		array<ref SPT_GarrisonPost> posts = {};
-		SPT_EGarrisonDetectResult result = SPT_GarrisonDetector.DetectPosts(
-			group.GetWorld(), center, pathing, agents.Count(), excluded, posts);
+		SPT_GarrisonDetectionSettings detectionSettings = new SPT_GarrisonDetectionSettings();
+		SPT_GarrisonDetectionDebug detectionDebug = new SPT_GarrisonDetectionDebug();
+		SPT_EGarrisonDetectResult result = SPT_GarrisonDetector.DetectPostsDebug(
+			group.GetWorld(),
+			center,
+			pathing,
+			agents.Count(),
+			excluded,
+			detectionSettings,
+			detectionDebug,
+			posts);
 
 		// Navmesh nao pronto ou sem posicoes ainda: agenda re-tentativa
 		if ((result == SPT_EGarrisonDetectResult.NAVMESH_NOT_READY || result == SPT_EGarrisonDetectResult.NO_POSITIONS) && retriesLeft > 0)
@@ -314,18 +333,27 @@ class SPT_GarrisonManager
 
 		SetGroupEngaging(group);
 
+		bool canPatrolAvailable = CanBuildCQBAvailableGraph(pathing, detectionDebug.m_aAvailable);
 		int assigned = 0;
 		foreach (AIAgent agent : agents)
 		{
 			if (assigned >= posts.Count())
 				break;
-			if (TeleportMemberToPost(agent, group, posts[assigned]))
+			if (TeleportMemberToPost(agent, group, posts[assigned], !canPatrolAvailable))
 				assigned++;
 		}
 
+		if (assigned > 0 && canPatrolAvailable)
+			StartCQBAvailablePatrol(group, center, pathing, detectionDebug.m_aAvailable);
+
 		if (assigned > 0)
-			Print(string.Format("[SPT_Garrison] CQB estatico aplicado | grupo=%1 | soldadosPosicionados=%2 | centro=%3",
-				group, assigned, center));
+		{
+			string behavior = "estatico";
+			if (canPatrolAvailable)
+				behavior = "patrulha AVAILABLE";
+			Print(string.Format("[SPT_Garrison] CQB aplicado | grupo=%1 | soldadosPosicionados=%2 | centro=%3 | comportamento=%4",
+				group, assigned, center, behavior));
+		}
 	}
 
 	// Callback de re-tentativa de guarnicao
@@ -335,7 +363,11 @@ class SPT_GarrisonManager
 	}
 
 	// Encaixa um soldado no posto inicial; a trava e removida somente quando uma rota interna valida existe.
-	protected bool TeleportMemberToPost(AIAgent agent, SCR_AIGroup group, SPT_GarrisonPost post)
+	protected bool TeleportMemberToPost(
+		AIAgent agent,
+		SCR_AIGroup group,
+		SPT_GarrisonPost post,
+		bool lockMovement = true)
 	{
 		if (!agent || !post)
 			return false;
@@ -358,9 +390,12 @@ class SPT_GarrisonManager
 		mat[3] = post.m_Pos;
 		gEntity.Teleport(mat);
 
-		SPT_AIMovementLockHelper.ApplyLockState(entity, true);
-		m_aHolds.Insert(new SPT_GarrisonHold(entity, group, utility, post.m_Facing));
-		EnsureHoldPoll();
+		SPT_AIMovementLockHelper.ApplyLockState(entity, lockMovement);
+		if (lockMovement)
+		{
+			m_aHolds.Insert(new SPT_GarrisonHold(entity, group, utility, post.m_Facing));
+			EnsureHoldPoll();
+		}
 		return true;
 	}
 
@@ -382,6 +417,99 @@ class SPT_GarrisonManager
 		GetGame().GetCallqueue().Remove(HoldPoll);
 		m_bHoldPollRunning = false;
 		EnsureHoldPoll();
+	}
+
+	protected bool CanBuildCQBAvailableGraph(
+		notnull AIPathfindingComponent pathing,
+		notnull array<vector> available)
+	{
+		for (int i = 0; i < available.Count(); i++)
+		{
+			for (int j = i + 1; j < available.Count(); j++)
+			{
+				if (IsCQBGraphEdgeValid(pathing, available[i], available[j]))
+					return true;
+			}
+		}
+		return false;
+	}
+
+	protected void StartCQBAvailablePatrol(
+		notnull SCR_AIGroup group,
+		vector buildingCenter,
+		notnull AIPathfindingComponent pathing,
+		notnull array<vector> available)
+	{
+		SPT_GarrisonInteriorPatrol patrol = new SPT_GarrisonInteriorPatrol(
+			group,
+			buildingCenter,
+			CQB_GRAPH_AREA_RADIUS_M,
+			SCR_EAIGroupFormation.Column,
+			EMovementType.WALK);
+		patrol.m_bUseAvailableGraph = true;
+
+		foreach (vector point : available)
+		{
+			patrol.m_Posts.Insert(new SPT_GarrisonPost(point, vector.Zero));
+			patrol.m_aGraph.Insert(new SPT_GarrisonPatrolLinks());
+		}
+
+		int edgeCount;
+		for (int i = 0; i < patrol.m_Posts.Count(); i++)
+		{
+			for (int j = i + 1; j < patrol.m_Posts.Count(); j++)
+			{
+				if (!IsCQBGraphEdgeValid(pathing, patrol.m_Posts[i].m_Pos, patrol.m_Posts[j].m_Pos))
+					continue;
+				patrol.m_aGraph[i].m_aNeighbors.Insert(j);
+				patrol.m_aGraph[j].m_aNeighbors.Insert(i);
+				edgeCount++;
+			}
+		}
+		if (edgeCount < 1)
+			return;
+
+		vector groupCenter = GetPatrolGroupCenter(group, buildingCenter);
+		float nearestDistanceSq = float.MAX;
+		for (int nodeIndex = 0; nodeIndex < patrol.m_Posts.Count(); nodeIndex++)
+		{
+			if (patrol.m_aGraph[nodeIndex].m_aNeighbors.IsEmpty())
+				continue;
+			float distanceSq = vector.DistanceSq(groupCenter, patrol.m_Posts[nodeIndex].m_Pos);
+			if (distanceSq >= nearestDistanceSq)
+				continue;
+			nearestDistanceSq = distanceSq;
+			patrol.m_iLastPost = nodeIndex;
+		}
+		patrol.m_vStartPosition = groupCenter;
+		patrol.m_iWaitPolls = Math.RandomInt(1, 5);
+		ApplyPatrolMovementSettings(group, SCR_EAIGroupFormation.Column, EMovementType.WALK);
+		m_aInteriorPatrols.Insert(patrol);
+		EnsureHoldPoll();
+		Print(string.Format(
+			"[SPT_Garrison] Patrulha CQB AVAILABLE iniciada | grupo=%1 | pontos=%2 | arestas=%3 | centro=%4",
+			group,
+			patrol.m_Posts.Count(),
+			edgeCount,
+			buildingCenter));
+	}
+
+	protected bool IsCQBGraphEdgeValid(
+		notnull AIPathfindingComponent pathing,
+		vector from,
+		vector to)
+	{
+		float deltaY = Math.AbsFloat(to[1] - from[1]);
+		if (deltaY > CQB_GRAPH_EDGE_MAX_Y_M)
+			return false;
+		if (vector.Distance(from, to) > CQB_GRAPH_EDGE_MAX_DISTANCE_M)
+			return false;
+
+		vector hitPosition;
+		return pathing.RayTrace(
+			from + Vector(0, 0.05, 0),
+			to + Vector(0, 0.05, 0),
+			hitPosition);
 	}
 
 	// Loop periodico executado enquanto houver soldados guarnecidos:
@@ -860,9 +988,78 @@ class SPT_GarrisonManager
 				continue;
 			}
 
-			CreateNextInteriorWaypoint(patrol);
+			if (patrol.m_bUseAvailableGraph)
+				CreateNextCQBGraphWaypoint(patrol);
+			else
+				CreateNextInteriorWaypoint(patrol);
 			patrol.m_iWaitPolls = Math.RandomInt(PATROL_WAIT_MIN_POLLS, PATROL_WAIT_MAX_POLLS + 1);
 		}
+	}
+
+	protected void CreateNextCQBGraphWaypoint(notnull SPT_GarrisonInteriorPatrol patrol)
+	{
+		if (patrol.m_iLastPost < 0 || patrol.m_iLastPost >= patrol.m_aGraph.Count())
+			return;
+
+		SPT_GarrisonPatrolLinks links = patrol.m_aGraph[patrol.m_iLastPost];
+		if (!links || links.m_aNeighbors.IsEmpty())
+			return;
+
+		array<int> candidates = {};
+		foreach (int neighborIndex : links.m_aNeighbors)
+		{
+			if (patrol.m_aRecentPosts.Find(neighborIndex) < 0)
+				candidates.Insert(neighborIndex);
+		}
+		if (candidates.IsEmpty())
+			candidates.Copy(links.m_aNeighbors);
+		if (candidates.IsEmpty())
+			return;
+
+		int nextPost = candidates[Math.RandomInt(0, candidates.Count())];
+		if (nextPost < 0 || nextPost >= patrol.m_Posts.Count())
+			return;
+
+		if (!m_bPatrolWaypointLoadAttempted)
+		{
+			m_bPatrolWaypointLoadAttempted = true;
+			m_PatrolWaypointResource = Resource.Load(m_sPatrolWaypointPrefab);
+		}
+		if (!m_PatrolWaypointResource)
+			return;
+
+		EntitySpawnParams params();
+		params.TransformMode = ETransformMode.WORLD;
+		Math3D.MatrixIdentity4(params.Transform);
+		params.Transform[3] = patrol.m_Posts[nextPost].m_Pos;
+		IEntity waypointEntity = GetGame().SpawnEntityPrefab(
+			m_PatrolWaypointResource,
+			patrol.m_Group.GetWorld(),
+			params);
+		AIWaypoint waypoint = AIWaypoint.Cast(waypointEntity);
+		if (!waypoint)
+		{
+			if (waypointEntity)
+				SCR_EntityHelper.DeleteEntityAndChildren(waypointEntity);
+			return;
+		}
+
+		waypoint.SetCompletionRadius(0.8);
+		waypoint.SetCompletionYPrecision(1.25);
+		patrol.m_iLastPost = nextPost;
+		patrol.m_vLastDestination = patrol.m_Posts[nextPost].m_Pos;
+		patrol.m_bHasLastDestination = true;
+		patrol.m_aRecentPosts.Insert(nextPost);
+		while (patrol.m_aRecentPosts.Count() > PATROL_RECENT_POST_LIMIT)
+			patrol.m_aRecentPosts.Remove(0);
+		patrol.m_Waypoint = waypoint;
+		patrol.m_Group.AddWaypoint(waypoint);
+		Print(string.Format(
+			"[SPT_Garrison] Waypoint CQB AVAILABLE | grupo=%1 | indice=%2 | destino=%3 | vizinhos=%4",
+			patrol.m_Group,
+			nextPost,
+			patrol.m_vLastDestination,
+			patrol.m_aGraph[nextPost].m_aNeighbors.Count()));
 	}
 
 	protected void CreateNextInteriorWaypoint(SPT_GarrisonInteriorPatrol patrol)
