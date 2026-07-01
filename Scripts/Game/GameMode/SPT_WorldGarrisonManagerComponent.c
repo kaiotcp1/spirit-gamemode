@@ -107,9 +107,9 @@ class SPT_GarrisonLocation : Managed
 	//! baixa nesta localizacao. Desacoplado do estado ACTIVE para evitar que
 	//! locais sem monitoramento explicito disparem eventos prematuramente.
 	bool m_bMonitoringEnabled;
-	//! Verdadeiro quando a primeira baixa da guarnicao foi detectada.
+	//! Verdadeiro quando a guarnicao atingiu metade do efetivo inicial.
 	//! Usado pelo Warfare para disparar reforcos uma unica vez.
-	bool m_bFirstCasualtyTriggered;
+	bool m_bHalfStrengthTriggered;
 	int m_iPendingGroups;
 	int m_iSuccessfulGroups;
 	int m_iDesiredUnits;
@@ -117,7 +117,7 @@ class SPT_GarrisonLocation : Managed
 	int m_iBudgetRemaining;
 	int m_iTargetManpower;
 	//! Snapshot do manpower total da guarnicao no momento em que o deploy
-	//! inicial termina. Usado para detectar a primeira baixa.
+	//! inicial termina. Usado para detectar o limiar de metade.
 	int m_iInitialGarrisonManpower;
 	int m_iSpawnGeneration;
 	int m_iQueuedSpawnUnits;
@@ -192,11 +192,11 @@ class SPT_GarrisonLocation : Managed
 	}
 
 	//! Captura o manpower atual como referencia inicial para deteccao de
-	//! primeira baixa. Chamado pelo monitor de estado da guarnicao.
+	//! metade do efetivo. Chamado pelo monitor de estado da guarnicao.
 	void SnapInitialManpower()
 	{
 		m_iInitialGarrisonManpower = GetGarrisonManpower();
-		m_bFirstCasualtyTriggered = false;
+		m_bHalfStrengthTriggered = false;
 	}
 
 	//! Manpower combinado de todos os grupos de guarnicao (CQB + patrulha),
@@ -206,17 +206,17 @@ class SPT_GarrisonLocation : Managed
 		return GetCachedGarrisonManpower() + GetActiveGarrisonManpower() + m_iQueuedGarrisonUnits;
 	}
 
-	//! Verifica se a primeira baixa ocorreu e retorna verdadeiro apenas na
+	//! Verifica se metade da guarnicao foi abatida e retorna verdadeiro apenas na
 	//! transicao (one-shot). O caller deve agir imediatamente.
-	bool CheckFirstCasualty()
+	bool CheckHalfStrength()
 	{
-		if (m_bFirstCasualtyTriggered)
+		if (m_bHalfStrengthTriggered)
 			return false;
 
 		int current = GetGarrisonManpower();
-		if (current < m_iInitialGarrisonManpower)
+		if (current * 2 <= m_iInitialGarrisonManpower)
 		{
-			m_bFirstCasualtyTriggered = true;
+			m_bHalfStrengthTriggered = true;
 			return true;
 		}
 		return false;
@@ -384,9 +384,9 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 	// EVENTOS PUBLICOS (Warfare)
 	//-----------------------------------------------------------------------
 
-	//! Disparado quando a primeira baixa da guarnicao ocorre.
+	//! Disparado quando a guarnicao atinge 50% ou menos do efetivo inicial.
 	//! Parametros: string locationId
-	protected ref ScriptInvoker m_OnGarrisonFirstCasualty = new ScriptInvoker();
+	protected ref ScriptInvoker m_OnGarrisonHalfStrength = new ScriptInvoker();
 
 	//! Disparado quando a guarnicao local e completamente eliminada.
 	//! Parametros: string locationId
@@ -1316,7 +1316,7 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 	// GETTERS DE EVENTOS PUBLICOS (Warfare)
 	//-----------------------------------------------------------------------
 
-	ScriptInvoker GetOnGarrisonFirstCasualty() { return m_OnGarrisonFirstCasualty; }
+	ScriptInvoker GetOnGarrisonHalfStrength() { return m_OnGarrisonHalfStrength; }
 	ScriptInvoker GetOnGarrisonCleared() { return m_OnGarrisonCleared; }
 	ScriptInvoker GetOnBattleStarted() { return m_OnBattleStarted; }
 	ScriptInvoker GetOnBattleWaveScheduled() { return m_OnBattleWaveScheduled; }
@@ -1467,7 +1467,7 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			"localizacao marcada como SAFE");
 		location.m_bUnavailable = false;
 		location.m_bCleared = true;
-		location.m_bFirstCasualtyTriggered = true;
+		location.m_bHalfStrengthTriggered = true;
 		location.m_iInitialGarrisonManpower = 0;
 		location.m_iPendingGroups = 0;
 		location.m_iQueuedSpawnUnits = 0;
@@ -1531,7 +1531,7 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		return true;
 	}
 
-	//! Inicia o monitoramento de primeira baixa para uma localizacao.
+	//! Inicia o monitoramento do limiar de metade para uma localizacao.
 	//! O snapshot do manpower inicial e adiado ate que todos os grupos
 	//! terminem de spawnar, para nao capturar um valor parcial.
 	//! Chamado pelo Warfare quando um ponto entra na frente de batalha.
@@ -1561,7 +1561,7 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 	}
 
 	//! Verifica todas as localizacoes com monitoramento ativo por eventos
-	//! de estado da guarnicao (primeira baixa e guarnicao eliminada).
+	//! de estado da guarnicao (metade do efetivo e guarnicao eliminada).
 	//! Chamado periodicamente via CallLater.
 	protected void MonitorGarrisonState()
 	{
@@ -1575,7 +1575,7 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			// Apenas localizacoes com monitoramento explicito (via
 			// StartMonitoringLocation) disparam eventos de baixa.
 			// Isso impede que locais nao inicializados disparem
-			// OnGarrisonFirstCasualty prematuramente.
+			// OnGarrisonHalfStrength prematuramente.
 			if (!location.m_bMonitoringEnabled)
 				continue;
 
@@ -1596,15 +1596,15 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 				continue;
 			}
 
-			// Verifica primeira baixa
-			if (location.CheckFirstCasualty())
+			// Verifica se a guarnicao atingiu metade do efetivo inicial.
+			if (location.CheckHalfStrength())
 			{
-				Print(string.Format("[SPT_WorldGarrison] Primeira baixa detectada | id=%1 | nome=%2 | manpowerAtual=%3/%4",
+				Print(string.Format("[SPT_WorldGarrison] Metade da guarnicao abatida | id=%1 | nome=%2 | manpowerAtual=%3/%4",
 					location.m_sLocationId,
 					location.m_sName,
 					location.GetGarrisonManpower(),
 					location.m_iInitialGarrisonManpower));
-				m_OnGarrisonFirstCasualty.Invoke(location.m_sLocationId);
+				m_OnGarrisonHalfStrength.Invoke(location.m_sLocationId);
 			}
 
 			// Verifica guarnicao eliminada
@@ -1631,7 +1631,7 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 
 				// Reseta o monitoramento para evitar disparos repetidos
 				location.m_iInitialGarrisonManpower = 0;
-				location.m_bFirstCasualtyTriggered = false;
+				location.m_bHalfStrengthTriggered = false;
 			}
 		}
 	}
@@ -2173,9 +2173,17 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			if (strategy == SPT_EDeploymentStrategy.SPREADED)
 			{
 				float sectorSize = Math.PI * 2.0 / count;
+				int sectorIndex = attempts - (attempts / count) * count;
 				angle = baseAngle
-					+ positions.Count() * sectorSize
+					+ sectorIndex * sectorSize
 					+ (Math.RandomFloat01() - 0.5) * sectorSize;
+			}
+			else
+			{
+				// Mantem a formacao concentrada em um cone, mas nao repete
+				// exatamente o mesmo raio quando uma tentativa cai na agua.
+				angle = concentratedAngle
+					+ (Math.RandomFloat01() - 0.5) * Math.PI * 0.5;
 			}
 			float distance = minDistance
 				+ Math.RandomFloat01() * (maxDistance - minDistance);
@@ -2188,6 +2196,34 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 			if (!IsBattlePositionInWater(position))
 				positions.Insert(position);
 		}
+
+		// Se a estrategia sorteada apontou para agua, procura o restante em
+		// toda a circunferencia. Isso evita perder uma onda inteira por causa
+		// de um unico setor aleatorio ruim.
+		if (positions.Count() < count)
+		{
+			int fallbackAttempts;
+			int maximumFallbackAttempts = Math.Max(count * 24, 24);
+			float fallbackStep = Math.PI * 2.0 / maximumFallbackAttempts;
+			while (positions.Count() < count && fallbackAttempts < maximumFallbackAttempts)
+			{
+				float fallbackAngle = baseAngle
+					+ fallbackAttempts * fallbackStep
+					+ (Math.RandomFloat01() - 0.5) * fallbackStep;
+				float fallbackDistance = minDistance
+					+ Math.RandomFloat01() * (maxDistance - minDistance);
+				vector fallbackPosition = location.m_vCenter + Vector(
+					Math.Cos(fallbackAngle) * fallbackDistance,
+					0,
+					Math.Sin(fallbackAngle) * fallbackDistance);
+				fallbackPosition[1] = GetGame().GetWorld().GetSurfaceY(
+					fallbackPosition[0], fallbackPosition[2]) + 0.2;
+				fallbackAttempts++;
+				if (!IsBattlePositionInWater(fallbackPosition))
+					positions.Insert(fallbackPosition);
+			}
+		}
+
 		if (positions.Count() < count)
 		{
 			Print(string.Format("[SPT_WorldGarrison] Reforcos limitados por falta de posicoes secas | local=%1 | solicitadas=%2 | encontradas=%3",

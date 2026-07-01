@@ -1,0 +1,128 @@
+SCR_AIWorld SCR_AIWorld2 : "{E0A05C76552E7F58}Prefabs/AI/SCR_AIWorld.et" {
+ components {
+  NavmeshWorldComponent "{5584F30E67F617AD}" {
+   NavmeshSettings NavmeshWorld "{50FC63BEBE3973C5}" {
+    NavmeshFilesConfig BaseNavmeshFilesConfig "{69B82CB3F1EB161D}" {
+     NavmeshFile "{AD5F99CD7C59D5E0}worlds/GameMaster/Navmeshes/GM_Eden.nmn"
+    }
+   }
+  }
+  NavmeshWorldComponent "{5584F30EEFEE1223}" {
+   NavmeshSettings ChimeraNavmeshWorld "{50FC63BEBE3973C5}" {
+    NavmeshFilesConfig BaseNavmeshFilesConfig "{60CA9BE5536BF701}" {
+     NavmeshFile "{C35ECF3276824654}worlds/GameMaster/Navmeshes/GM_Eden_vehicles.nmn"
+    }
+   }
+  }
+  NavmeshWorldComponent "{5C8C9B750D124A63}" {
+   NavmeshSettings NavmeshWorld "{5C8C9B750B60C6E2}" {
+    NavmeshFilesConfig BaseNavmeshFilesConfig "{5C90BD0EC793647D}" {
+     NavmeshFile "{5E19E60F26327356}worlds/MP/Navmeshes/LowResEden.nmn"
+    }
+   }
+  }
+ }
+ coords 6149.723 157.485 6280.655
+ {
+  CommentEntity {
+   coords 0 1 0
+   m_Comment "SCR_AIWorld: "\
+   "Configure navigation mesh"
+   m_Color 0 0 0
+   m_FaceCamera 1
+   m_TextBackground 1
+   m_BackgroundColor 1 0.6 0
+   m_BackgroundTransparency 0
+  }
+ }
+}
+PerceptionManager PerceptionManager2 : "{028DAEAD63E056BE}Prefabs/World/Game/PerceptionManager.et" {
+ coords 6149.723 158.006 6284.655
+}
+SCR_FactionManager FactionManager_USxUSSR2 : "{589540B35EBA8CDC}Prefabs/MP/Managers/Factions/FactionManager_USxUSSR.et" {
+ coords 6149.723 157.623 6281.655
+ {
+  CommentEntity {
+   coords 0 1 0
+   m_Comment "FactionManager_USxUSSR: "\
+   "Configure desired factions"
+   m_Color 0 0 0
+   m_FaceCamera 1
+   m_TextBackground 1
+   m_BackgroundColor 1 0.6 0
+   m_BackgroundTransparency 0
+  }
+ }
+}
+RadioManagerEntity RadioManager2 : "{B8E09FAB91C4ECCD}Prefabs/Systems/Radio/RadioManager.et" {
+ coords 6149.723 157.886 6283.655
+}
+SCR_BaseGameMode SPT_GameModeSF : "{ECEEDB2D3737204B}Prefabs/Systems/ScenarioFramework/GameModeSF.et" {
+ components {
+  EPF_PersistenceComponent "{69BC000100000002}" {
+   m_bSelfSpawn 0
+   m_bSelfDelete 0
+   m_pSaveData SPT_WarfareGameModeSaveDataClass "{69BC000100000003}" {
+    m_eTranformSaveFlags 0
+    m_bSaveRemainingLifetime 0
+    m_aComponents {
+     SPT_WarfareMissionManagerSaveDataClass "{69BC000100000004}" {
+     }
+    }
+   }
+  }
+  EPF_PersistenceManagerComponent "{69BC000100000005}" {
+   m_pConnectionInfo EDF_JsonFileDbConnectionInfo "{69BC000100000006}" {
+    m_sDatabaseName "SPT_GAME.Warfare"
+   }
+  }
+  SCR_GameModeSFManager "{5A96783ABCA252AE}" {
+   m_bDynamicDespawn 1
+  }
+  SCR_RespawnSystemComponent "{56B2B4793051E7C9}" {
+   m_SpawnLogic SCR_MenuSpawnLogic "{69BD731748AE92F7}" {
+    m_bUseFadeEffect 1
+   }
+  }
+  SPT_CityDebugComponent "{69B768A2ED652C1A}" {
+   Enabled 0
+  }
+  SPT_MineDefusalManagerComponent "{69B768AADE5D3826}" {
+   Enabled 0
+   m_bAutoScanMines 0
+   m_bDebugAllMines 1
+   m_bDefaultRequiresTool 0
+  }
+  SPT_WarfareGameModeComponent "{69BA190E4062431D}" {
+   m_sPlayerFactionKey "USSR"
+   m_sEnemyFactionKey "US"
+   m_rRespawnEnvironmentPrefab "{F1C5F8E2EF1105F9}Prefabs/Compositions/Misc/SubCompositions/Tent_HQ_Camo_Cluttered_US_01.et"
+  }
+  SPT_WarfareMissionManagerComponent "{69BC000100000001}" {
+  }
+  SPT_WorldGarrisonManagerComponent "{69B768A2ED652C20}" {
+   m_bDebug 1
+  }
+ }
+ coords 6149.723 157.373 6279.655
+ PlayerControllerPrefab "{A94F06F42D59C178}Prefabs/Characters/Core/SPT_PlayerController.et"
+ m_bAutoPlayerRespawn 0
+}
+ScriptedChatEntity ScriptedChatEntity2 : "{F69BC912AC8236F9}Prefabs/MP/ScriptedChatEntity.et" {
+ coords 6149.723 158.112 6285.655
+}
+SCR_LoadoutManager LoadoutManager_USxUSSR2 : "{97EF4C1A41F63DDB}Prefabs/MP/Managers/Loadouts/LoadoutManager_USxUSSR.et" {
+ coords 6149.723 157.761 6282.655
+ {
+  CommentEntity {
+   coords 0 1 0
+   m_Comment "LoadoutManager_USxUSSR: "\
+   "Configure desired loadouts"
+   m_Color 0 0 0
+   m_FaceCamera 1
+   m_TextBackground 1
+   m_BackgroundColor 1 0.6 0
+   m_BackgroundTransparency 0
+  }
+ }
+}

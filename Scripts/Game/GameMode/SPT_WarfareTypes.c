@@ -4,7 +4,7 @@ enum SPT_EWarfarePointState
 	//! Area inimiga disponivel para ataque.
 	//! O valor 1 preserva compatibilidade com snapshots anteriores.
 	FRONTLINE = 1,
-	//! Primeira baixa registrada; reforcos autorizados.
+	//! Guarnicao em metade do efetivo; decisao de reforcos processada.
 	UNDER_ATTACK = 2,
 	//! Guarnicao eliminada, aguardando presenca de jogador.
 	CLEARED_WAITING = 3,
@@ -91,6 +91,7 @@ class SPT_WarfareMissionConfig : Managed
 	float m_fActivationDistance = 800.0;
 	float m_fTerrainSearchRadius = 100.0;
 	float m_fMaximumSlopeDegrees = 12.0;
+	ref array<string> m_aCommunicationProtectedPointIds = new array<string>();
 }
 
 class SPT_GarrisonLocationConfig : Managed

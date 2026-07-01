@@ -119,6 +119,9 @@ class SPT_WarfarePointComponent : SPT_WarfareNodeComponent
 	[Attribute("12", desc: "Inclinacao maxima aproximada do terreno em graus.", category: "Mission")]
 	protected float m_fMissionMaximumSlopeDegrees;
 
+	[Attribute("", desc: "IDs dos WarfarePoints cujos reforcos dependem desta missao de comunicacao.", category: "Mission")]
+	protected ref array<string> m_aCommunicationProtectedPointIds;
+
 	//-----------------------------------------------------------------------
 	// GETTERS/SETTERS
 	//-----------------------------------------------------------------------
@@ -136,6 +139,11 @@ class SPT_WarfarePointComponent : SPT_WarfareNodeComponent
 		config.m_fActivationDistance = Math.Max(m_fMissionActivationDistance, 1.0);
 		config.m_fTerrainSearchRadius = Math.Max(m_fMissionTerrainSearchRadius, 0.0);
 		config.m_fMaximumSlopeDegrees = Math.Clamp(m_fMissionMaximumSlopeDegrees, 0.0, 45.0);
+		if (m_aCommunicationProtectedPointIds)
+		{
+			foreach (string protectedPointId : m_aCommunicationProtectedPointIds)
+				config.m_aCommunicationProtectedPointIds.Insert(protectedPointId.Trim());
+		}
 		return config;
 	}
 

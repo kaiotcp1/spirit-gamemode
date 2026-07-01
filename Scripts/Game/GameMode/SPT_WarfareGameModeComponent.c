@@ -73,6 +73,9 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 	//! Flag de captura: verdadeiro se o ponto ja foi capturado pelo jogador.
 	protected ref map<string, bool> m_mPointCaptured;
 
+	//! Pontos cujo reforco foi bloqueado por comunicacoes no gatilho da batalha.
+	protected ref map<string, bool> m_mPointReinforcementsBlocked;
+
 	//! IDs dos pontos que sao HQ.
 	protected ref array<string> m_aHQIds;
 
@@ -175,6 +178,7 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 		m_aPointOrder = new array<string>();
 		m_mPointStates = new map<string, SPT_EWarfarePointState>();
 		m_mPointCaptured = new map<string, bool>();
+		m_mPointReinforcementsBlocked = new map<string, bool>();
 		m_aHQIds = new array<string>();
 		m_aFrontlineIds = new array<string>();
 		m_aPendingStateUpdates = new array<ref SPT_WarfarePointStateSnapshot>();
@@ -619,6 +623,47 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 					valid = false;
 				}
 			}
+
+			if (!data.m_bIsHQ && data.m_MissionConfig)
+			{
+				array<string> protectedIds = data.m_MissionConfig.m_aCommunicationProtectedPointIds;
+				if (!protectedIds || protectedIds.IsEmpty())
+					continue;
+
+				if (data.m_MissionConfig.m_eType != SPT_EWarfareMissionType.SABOTAGE_COMMUNICATIONS)
+				{
+					Print(string.Format("[SPT_Warfare] ERRO: Vinculos de comunicacao em missao incompativel | origem=%1.",
+						pointId), LogLevel.ERROR);
+					valid = false;
+				}
+
+				foreach (int linkIndex, string protectedId : protectedIds)
+				{
+					if (protectedId.IsEmpty())
+					{
+						Print(string.Format("[SPT_Warfare] ERRO: Vinculo de comunicacao vazio | origem=%1.",
+							pointId), LogLevel.ERROR);
+						valid = false;
+						continue;
+					}
+
+					if (protectedIds.Find(protectedId) != linkIndex)
+					{
+						Print(string.Format("[SPT_Warfare] ERRO: Vinculo de comunicacao duplicado | origem=%1 | destino=%2.",
+							pointId, protectedId), LogLevel.ERROR);
+						valid = false;
+						continue;
+					}
+
+					SPT_WarfarePointData protectedPoint = m_mPointsById.Get(protectedId);
+					if (!protectedPoint || protectedPoint.m_bIsHQ || protectedId == pointId)
+					{
+						Print(string.Format("[SPT_Warfare] ERRO: Vinculo de comunicacao invalido | origem=%1 | destino=%2.",
+							pointId, protectedId), LogLevel.ERROR);
+						valid = false;
+					}
+				}
+			}
 		}
 
 		return valid;
@@ -647,6 +692,7 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 			{
 				m_mPointStates.Set(pointId, SPT_EWarfarePointState.FRONTLINE);
 				m_mPointCaptured.Set(pointId, false);
+				m_mPointReinforcementsBlocked.Set(pointId, false);
 			}
 		}
 
@@ -689,7 +735,7 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 		if (!garrisonMgr)
 			return;
 
-		garrisonMgr.GetOnGarrisonFirstCasualty().Insert(OnGarrisonFirstCasualty);
+		garrisonMgr.GetOnGarrisonHalfStrength().Insert(OnGarrisonHalfStrength);
 		garrisonMgr.GetOnGarrisonCleared().Insert(OnGarrisonCleared);
 		garrisonMgr.GetOnBattleStarted().Insert(OnBattleStarted);
 		garrisonMgr.GetOnBattleWaveScheduled().Insert(OnBattleWaveScheduled);
@@ -699,7 +745,7 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 		StartMonitoringAllAttackablePoints(garrisonMgr);
 	}
 
-	protected void OnGarrisonFirstCasualty(string locationId)
+	protected void OnGarrisonHalfStrength(string locationId)
 	{
 		string pointId = FindPointByGarrisonLocation(locationId);
 		if (pointId.IsEmpty())
@@ -708,17 +754,52 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 		SPT_EWarfarePointState currentState = GetPointState(pointId);
 		if (currentState == SPT_EWarfarePointState.FRONTLINE)
 		{
+			bool reinforcementsBlocked = AreReinforcementsBlockedByCommunications(pointId);
+			m_mPointReinforcementsBlocked.Set(pointId, reinforcementsBlocked);
 			ChangePointState(pointId, SPT_EWarfarePointState.UNDER_ATTACK);
 
 			// Inicia batalha de reforcos
 			SPT_WarfarePointData data = m_mPointsById.Get(pointId);
 			if (data)
 			{
+				if (reinforcementsBlocked)
+				{
+					Print(string.Format("[SPT_Warfare] Reforcos bloqueados por comunicacoes sabotadas | ponto=%1",
+						pointId));
+					return;
+				}
+
 				SPT_WorldGarrisonManagerComponent garrisonMgr = SPT_WorldGarrisonManagerComponent.GetInstance();
 				if (garrisonMgr)
 					garrisonMgr.StartLocationBattle(data.m_vCenter);
 			}
 		}
+	}
+
+	//! Uma area so perde reforcos quando todas as torres que a protegem foram concluidas.
+	protected bool AreReinforcementsBlockedByCommunications(string protectedPointId)
+	{
+		SPT_WarfareMissionManagerComponent missionManager = SPT_WarfareMissionManagerComponent.GetInstance();
+		if (!missionManager)
+			return false;
+
+		bool hasLinkedTower;
+		foreach (string sourcePointId : m_aPointOrder)
+		{
+			SPT_WarfarePointData sourcePoint = m_mPointsById.Get(sourcePointId);
+			if (!sourcePoint || !sourcePoint.m_MissionConfig)
+				continue;
+			if (sourcePoint.m_MissionConfig.m_eType != SPT_EWarfareMissionType.SABOTAGE_COMMUNICATIONS)
+				continue;
+			if (sourcePoint.m_MissionConfig.m_aCommunicationProtectedPointIds.Find(protectedPointId) < 0)
+				continue;
+
+			hasLinkedTower = true;
+			if (missionManager.GetMissionState(sourcePointId) != SPT_EWarfareMissionState.COMPLETED)
+				return false;
+		}
+
+		return hasLinkedTower;
 	}
 
 	protected void OnGarrisonCleared(string locationId)
@@ -752,6 +833,7 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 			return;
 
 		Print(string.Format("[SPT_Warfare] Batalha iniciada no ponto %1", pointId));
+		EnqueueStateUpdate(pointId, GetPointState(pointId));
 	}
 
 	protected void OnBattleWaveScheduled(string locationId, int waveIndex)
@@ -761,6 +843,7 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 			return;
 
 		Print(string.Format("[SPT_Warfare] Onda %1 agendada | ponto=%2", waveIndex, pointId));
+		EnqueueStateUpdate(pointId, GetPointState(pointId));
 	}
 
 	protected void OnBattleWaveDeployed(string locationId, int waveIndex, int unitCount)
@@ -771,6 +854,7 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 
 		Print(string.Format("[SPT_Warfare] Onda %1 materializada | ponto=%2 | unidades=%3",
 			waveIndex, pointId, unitCount));
+		EnqueueStateUpdate(pointId, GetPointState(pointId));
 	}
 
 	protected void OnBattleEnded(string locationId)
@@ -989,6 +1073,9 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 					snapshot.m_iGarrisonManpower = manpower;
 					snapshot.m_iGarrisonInitialManpower = targetManpower;
 					snapshot.m_iBattleWaveIndex = waveIndex;
+					if (m_mPointReinforcementsBlocked.Contains(pointId) &&
+						m_mPointReinforcementsBlocked.Get(pointId))
+						snapshot.m_iBattleWaveIndex = -2;
 				}
 			}
 		}
@@ -1211,6 +1298,9 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 		garrisonMgr.GetLocationState(data.m_sGarrisonLocationId, center, name, descriptorType,
 			manpower, targetManpower, pendingSpawns, cleared, budget,
 			battleActive, waveIndex, waveCount);
+		if (m_mPointReinforcementsBlocked.Contains(data.m_sPointId) &&
+			m_mPointReinforcementsBlocked.Get(data.m_sPointId))
+			waveIndex = -2;
 	}
 
 	//! Envia o estado completo de todos os pontos para clientes (JIP / inicial).
@@ -1441,7 +1531,12 @@ class SPT_WarfareGameModeComponent : ScriptComponent
 		if (newState == SPT_EWarfarePointState.UNDER_ATTACK)
 		{
 			if (oldState == SPT_EWarfarePointState.FRONTLINE)
-				message = string.Format("%1 sob ataque! Reforcos inimigos a caminho.", pointName);
+			{
+				if (waveIndex == -2)
+					message = string.Format("%1 sob ataque! Comunicacoes sabotadas; reforcos bloqueados.", pointName);
+				else
+					message = string.Format("%1 sob ataque!", pointName);
+			}
 			else
 				message = string.Format("%1 sob ataque!", pointName);
 		}

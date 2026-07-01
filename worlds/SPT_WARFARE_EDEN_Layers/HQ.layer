@@ -1,0 +1,32 @@
+$grp GenericEntity : "{D4A8C0512E7B9400}Prefabs/Warfare/SPT_WarfareHQ.et" {
+ {
+  components {
+   SPT_WarfareHQComponent "{D4A8C0512E7B9402}" {
+    m_sPointId "HQ_1"
+    m_sDisplayName "Base"
+   }
+  }
+  coords 4949.99 29.159 11795.197
+ }
+ {
+  components {
+   SPT_WarfareHQComponent "{D4A8C0512E7B9402}" {
+    m_sPointId "HQ_2"
+    m_sDisplayName "Base"
+   }
+  }
+  coords 4386.873 11.907 10691.165
+  angles 0 -6.752 0
+ }
+ {
+  components {
+   SPT_WarfareHQComponent "{D4A8C0512E7B9402}" {
+    m_sPointId "HQ_3"
+    m_sDisplayName "Base"
+    m_fRadius 100
+   }
+  }
+  coords 5341.967 43.588 10535.72
+  angles 0 -6.752 0
+ }
+}

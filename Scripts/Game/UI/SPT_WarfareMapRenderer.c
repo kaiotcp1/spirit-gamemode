@@ -358,9 +358,11 @@ class SPT_WarfareMapRenderer : Managed
 	{
 		if (state == SPT_EWarfarePointState.UNDER_ATTACK)
 		{
+			if (waveIndex == -2)
+				return "bloqueados (comunicacoes)";
 			if (waveIndex >= 0)
 				return string.Format("onda %1 ativa", waveIndex + 1);
-			return "a caminho";
+			return "aguardando";
 		}
 
 		if (state == SPT_EWarfarePointState.CAPTURED_DEFENDING)

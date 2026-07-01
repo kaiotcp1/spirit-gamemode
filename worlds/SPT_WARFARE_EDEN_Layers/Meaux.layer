@@ -1,0 +1,129 @@
+$grp GenericEntity : "{B1F6A2439C8D7500}Prefabs/Warfare/SPT_WarfarePoint.et" {
+ {
+  components {
+   SPT_WarfarePointComponent "{B1F6A2439C8D7502}" {
+    m_sPointId "23423"
+    m_sDisplayName "Cidade de Meaux"
+    m_ePointType CITY
+    m_fRadius 200
+    m_fGarrisonSpawnDistance 800
+    m_fGarrisonDespawnDistance 800
+    m_fGarrisonBuildingSearchRadius 80
+    m_fGarrisonPatrolRadius 150
+    m_iGarrisonLocationBudget 45
+    m_iGarrisonSpawnIntervalMs 5000
+    m_aGarrisonCQBGroupPrefabs +{
+     "{D807C7047E818488}Prefabs/Groups/BLUFOR/Group_US_SniperTeam.et"
+     "{35681BE27C302FF5}Prefabs/Groups/BLUFOR/GreenBerets/Group_US_GreenBeret_SentryTeam.et"
+    }
+    m_aGarrisonPatrolGroupPrefabs {
+     ""
+     "{958039B857396B7B}Prefabs/Groups/BLUFOR/Group_US_MachineGunTeam.et"
+     "{958039B857396B7B}Prefabs/Groups/BLUFOR/Group_US_MachineGunTeam.et"
+    }
+    m_aBattleVehicles {
+     SPT_BattleVehicleConfig "{B1F6A2439C8D7503}" {
+      m_rVehiclePrefab "{9A0D72816DFFDB7F}Prefabs/Vehicles/Wheeled/M923A1/M923A1.et"
+      m_rCrewGroupPrefab "{B7AB5D3F8A7ADAE4}Prefabs/Groups/BLUFOR/Group_US_PlatoonHQ.et"
+     }
+    }
+    m_eMissionType DESTROY_FUEL_DEPOT
+    m_fMissionActivationDistance 400
+   }
+  }
+  coords 4465.867 13.477 9468.091
+  angles 1.789 -0.028 -0.896
+ }
+ MEAUX_TOWER_1 {
+  components {
+   SPT_WarfarePointComponent "{B1F6A2439C8D7502}" {
+    m_sPointId "151272"
+    m_sDisplayName "Torre de Comunicação Meaux"
+    m_ePointType MILITARY_BASE
+    m_fRadius 100
+    m_fGarrisonSpawnDistance 300
+    m_fGarrisonDespawnDistance 300
+    m_fGarrisonBuildingSearchRadius 80
+    m_fGarrisonPatrolRadius 80
+    m_iGarrisonLocationBudget 25
+    m_iGarrisonSpawnIntervalMs 1000
+    m_aGarrisonCQBGroupPrefabs {
+     ""
+     ""
+     ""
+    }
+    m_aGarrisonPatrolGroupPrefabs {
+     ""
+     "{958039B857396B7B}Prefabs/Groups/BLUFOR/Group_US_MachineGunTeam.et"
+     "{958039B857396B7B}Prefabs/Groups/BLUFOR/Group_US_MachineGunTeam.et"
+    }
+    m_eGarrisonPatrolFormation Line
+    m_bBattleEnabled 0
+    m_iBattleWaveDelayMinMs 20000
+    m_iBattleSpawnIntervalMs 4000
+    m_iBattleWaveUnitsMin 4
+    m_iBattleWaveUnitsMax 8
+    m_fBattleVehicleReinforcementChance 1
+    m_aBattleVehicles {
+     SPT_BattleVehicleConfig "{B1F6A2439C8D7503}" {
+      m_rVehiclePrefab "{0FBF8F010F81A4E5}Prefabs/Vehicles/Wheeled/LAV25/LAV25.et"
+      m_rCrewGroupPrefab "{FAEA8B9E1252F56E}Prefabs/Groups/BLUFOR/Group_US_Team_LAT.et"
+     }
+    }
+    m_eMissionType SABOTAGE_COMMUNICATIONS
+    m_fMissionActivationDistance 400
+    m_aCommunicationProtectedPointIds {
+     "23423"
+    }
+   }
+  }
+  coords 5621.747 48.72 9129.041
+  angles 1.789 -0.028 -0.896
+ }
+ MEAUX_TOWER_2 {
+  components {
+   SPT_WarfarePointComponent "{B1F6A2439C8D7502}" {
+    m_sPointId "512352"
+    m_sDisplayName "Torre de Comunicação Meaux 2"
+    m_ePointType MILITARY_BASE
+    m_fRadius 100
+    m_fGarrisonSpawnDistance 300
+    m_fGarrisonDespawnDistance 300
+    m_fGarrisonBuildingSearchRadius 80
+    m_fGarrisonPatrolRadius 150
+    m_iGarrisonLocationBudget 45
+    m_iGarrisonSpawnIntervalMs 1000
+    m_aGarrisonCQBGroupPrefabs {
+     ""
+     ""
+     ""
+    }
+    m_aGarrisonPatrolGroupPrefabs {
+     ""
+     "{958039B857396B7B}Prefabs/Groups/BLUFOR/Group_US_MachineGunTeam.et"
+     "{958039B857396B7B}Prefabs/Groups/BLUFOR/Group_US_MachineGunTeam.et"
+    }
+    m_eGarrisonPatrolFormation Line
+    m_bBattleEnabled 0
+    m_iBattleWaveDelayMinMs 20000
+    m_iBattleSpawnIntervalMs 4000
+    m_iBattleWaveUnitsMin 4
+    m_iBattleWaveUnitsMax 8
+    m_fBattleVehicleReinforcementChance 1
+    m_aBattleVehicles {
+     SPT_BattleVehicleConfig "{B1F6A2439C8D7503}" {
+      m_rVehiclePrefab "{9A0D72816DFFDB7F}Prefabs/Vehicles/Wheeled/M923A1/M923A1.et"
+      m_rCrewGroupPrefab "{B7AB5D3F8A7ADAE4}Prefabs/Groups/BLUFOR/Group_US_PlatoonHQ.et"
+     }
+    }
+    m_eMissionType SABOTAGE_COMMUNICATIONS
+    m_fMissionActivationDistance 400
+    m_aCommunicationProtectedPointIds {
+     "23423"
+    }
+   }
+  }
+  coords 5066.859 96.85 8498.14
+  angles 16.758 3.082 11.877
+ }
+}

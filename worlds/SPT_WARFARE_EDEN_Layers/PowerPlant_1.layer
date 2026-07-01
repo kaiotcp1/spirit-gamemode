@@ -1,0 +1,33 @@
+GenericEntity : "{B1F6A2439C8D7500}Prefabs/Warfare/SPT_WarfarePoint.et" {
+ components {
+  SPT_WarfarePointComponent "{B1F6A2439C8D7502}" {
+   m_sPointId "Power_plant_1"
+   m_sDisplayName "Planta de Energia"
+   m_ePointType MILITARY_BASE
+   m_fGarrisonSpawnDistance 400
+   m_fGarrisonDespawnDistance 400
+   m_fGarrisonBuildingSearchRadius 80
+   m_fGarrisonPatrolRadius 150
+   m_iGarrisonLocationBudget 25
+   m_iGarrisonSpawnIntervalMs 5000
+   m_aGarrisonCQBGroupPrefabs +{
+    "{D807C7047E818488}Prefabs/Groups/BLUFOR/Group_US_SniperTeam.et"
+    "{35681BE27C302FF5}Prefabs/Groups/BLUFOR/GreenBerets/Group_US_GreenBeret_SentryTeam.et"
+   }
+   m_aGarrisonPatrolGroupPrefabs {
+    ""
+    "{958039B857396B7B}Prefabs/Groups/BLUFOR/Group_US_MachineGunTeam.et"
+    "{958039B857396B7B}Prefabs/Groups/BLUFOR/Group_US_MachineGunTeam.et"
+   }
+   m_aBattleVehicles {
+    SPT_BattleVehicleConfig "{B1F6A2439C8D7503}" {
+     m_rVehiclePrefab "{9A0D72816DFFDB7F}Prefabs/Vehicles/Wheeled/M923A1/M923A1.et"
+     m_rCrewGroupPrefab "{B7AB5D3F8A7ADAE4}Prefabs/Groups/BLUFOR/Group_US_PlatoonHQ.et"
+    }
+   }
+   m_eMissionType DESTROY_AMMO_CACHE
+   m_fMissionActivationDistance 400
+  }
+ }
+ coords 5826.845 4.564 9800.355
+}
