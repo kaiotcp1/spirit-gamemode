@@ -80,26 +80,12 @@ SCR_BaseGameMode SPT_GameModeSF : "{ECEEDB2D3737204B}Prefabs/Systems/ScenarioFra
    m_bDynamicDespawn 1
   }
   SCR_RespawnSystemComponent "{56B2B4793051E7C9}" {
-   Enabled 0
    components {
     SCR_FreeSpawnHandlerComponent "{5CD2860C681CE021}" {
-     Enabled 0
     }
     SCR_PossessSpawnHandlerComponent "{5CD2D12697D089D4}" {
-     Enabled 0
     }
     SCR_SpawnPointSpawnHandlerComponent "{5CD2D126957998DF}" {
-     Enabled 0
-    }
-   }
-  }
-  SCR_RespawnSystemComponent "{69BD731722CBBBDC}" {
-   components {
-    SCR_FreeSpawnHandlerComponent "{69BD7317547D5430}" {
-    }
-    SCR_PossessSpawnHandlerComponent "{69BD731752E7FF9F}" {
-    }
-    SCR_SpawnPointSpawnHandlerComponent "{69BD7317453451C7}" {
     }
    }
    m_SpawnLogic SCR_MenuSpawnLogic "{69BD731748AE92F7}" {
