@@ -32,6 +32,100 @@ class SPT_GarrisonOpening
 	}
 }
 
+//! Parametros ajustaveis do pipeline CQB. Os defaults preservam exatamente o
+//! comportamento historico do detector; ferramentas podem usar uma instancia
+//! separada sem alterar o runtime.
+class SPT_GarrisonDetectionSettings
+{
+	float m_fGridSpacing = 1.5;
+	float m_fYSliceSpacing = 2.5;
+	float m_fFloorOffset = 1.0;
+	vector m_vNavmeshSearchHalf = "2.5 1.5 2.5";
+	float m_fSnapDedupSq = 0.25;
+	float m_fDoorClearance = 2.0;
+	float m_fOccupiedClearance = 2.0;
+	float m_fDoorFloorTolerance = 2.0;
+	float m_fConnectDistance = 2.2;
+	float m_fConnectY = 3.5;
+	float m_fFloorWeight = 2.5;
+	int m_iFarthestJitter = 3;
+	float m_fMinPostSpacing = 1.8;
+	float m_fFloorProbe = 0.6;
+	float m_fMaxFloorGap = 0.35;
+	float m_fMinHeadroom = 1.8;
+	float m_fClearRadius = 0.4;
+	float m_fEncloseRay = 16.0;
+	int m_iEncloseMinHits = 4;
+	bool m_bUseInteriorOBBGate = false;
+}
+
+enum SPT_EGarrisonFloorRejectReason
+{
+	NONE,
+	UNDERGROUND,
+	NO_FLOOR,
+	FLOOR_GAP,
+	HEADROOM
+}
+
+//! Snapshot completo de uma execucao do detector, consumido pela ferramenta
+//! do Workbench. Cada array representa uma etapa ou motivo de rejeicao.
+class SPT_GarrisonDetectionDebug
+{
+	vector m_vBuildingCenter;
+	ref array<vector> m_aGrid = {};
+	ref array<vector> m_aNavmeshMiss = {};
+	ref array<vector> m_aSnapped = {};
+	ref array<vector> m_aSnapDuplicate = {};
+	ref array<vector> m_aRejectedOBB = {};
+	ref array<vector> m_aRejectedRoof = {};
+	ref array<vector> m_aRejectedUnderground = {};
+	ref array<vector> m_aRejectedNoFloor = {};
+	ref array<vector> m_aRejectedFloorGap = {};
+	ref array<vector> m_aRejectedHeadroom = {};
+	ref array<vector> m_aRejectedSpace = {};
+	ref array<vector> m_aRejectedWalls = {};
+	ref array<vector> m_aValid = {};
+	ref array<vector> m_aRejectedDoorLevel = {};
+	ref array<vector> m_aReachable = {};
+	ref array<vector> m_aRejectedCluster = {};
+	ref array<vector> m_aContained = {};
+	ref array<vector> m_aRejectedDoorClearance = {};
+	ref array<vector> m_aRejectedOccupied = {};
+	ref array<vector> m_aAvailable = {};
+	ref array<vector> m_aDoors = {};
+	ref array<ref SPT_GarrisonOpening> m_aOpenings = {};
+	ref array<ref SPT_GarrisonPost> m_aPosts = {};
+
+	void Reset()
+	{
+		m_vBuildingCenter = vector.Zero;
+		m_aGrid.Clear();
+		m_aNavmeshMiss.Clear();
+		m_aSnapped.Clear();
+		m_aSnapDuplicate.Clear();
+		m_aRejectedOBB.Clear();
+		m_aRejectedRoof.Clear();
+		m_aRejectedUnderground.Clear();
+		m_aRejectedNoFloor.Clear();
+		m_aRejectedFloorGap.Clear();
+		m_aRejectedHeadroom.Clear();
+		m_aRejectedSpace.Clear();
+		m_aRejectedWalls.Clear();
+		m_aValid.Clear();
+		m_aRejectedDoorLevel.Clear();
+		m_aReachable.Clear();
+		m_aRejectedCluster.Clear();
+		m_aContained.Clear();
+		m_aRejectedDoorClearance.Clear();
+		m_aRejectedOccupied.Clear();
+		m_aAvailable.Clear();
+		m_aDoors.Clear();
+		m_aOpenings.Clear();
+		m_aPosts.Clear();
+	}
+}
+
 //! Registro de construcao candidata a CQB com pontuacao de qualidade.
 //! Usado pelo detector para ordenar construcoes da melhor para a pior,
 //! priorizando edificios com varios andares, janelas, escadas e terraços.
@@ -496,9 +590,27 @@ class SPT_GarrisonDetector
 		notnull array<vector> excluded,
 		out array<ref SPT_GarrisonPost> outPosts)
 	{
-		outPosts = {};
+		SPT_GarrisonDetectionSettings settings = new SPT_GarrisonDetectionSettings();
+		return DetectPostsDebug(world, center, pathing, desiredCount, excluded, settings, null, outPosts);
+	}
 
-		if (!world || !pathing)
+	//! Variante instrumentada para Workbench. Settings e debug sao externos
+	//! para que previews nao alterem os defaults usados pelo garrison runtime.
+	static SPT_EGarrisonDetectResult DetectPostsDebug(
+		BaseWorld world,
+		vector center,
+		AIPathfindingComponent pathing,
+		int desiredCount,
+		notnull array<vector> excluded,
+		notnull SPT_GarrisonDetectionSettings settings,
+		SPT_GarrisonDetectionDebug debugData,
+		out array<ref SPT_GarrisonPost> outPosts)
+	{
+		outPosts = {};
+		if (debugData)
+			debugData.Reset();
+
+		if (!world)
 			return SPT_EGarrisonDetectResult.NO_BUILDING;
 
 		array<IEntity> buildings = {};
@@ -512,55 +624,112 @@ class SPT_GarrisonDetector
 
 		vector mins, maxs;
 		target.GetWorldBounds(mins, maxs);
+		vector buildingCenter = (mins + maxs) * 0.5;
+		if (debugData)
+			debugData.m_vBuildingCenter = buildingCenter;
 
 		array<vector> snapped = {};
-		SampleNavmesh(pathing, mins, maxs, snapped);
+		SampleNavmesh(world, pathing, mins, maxs, settings, debugData, snapped);
 		if (snapped.IsEmpty())
+		{
+			if (!pathing)
+				return SPT_EGarrisonDetectResult.NO_POSITIONS;
 			return SPT_EGarrisonDetectResult.NAVMESH_NOT_READY;
+		}
 
 		// mantem apenas pontos dentro da construcao, sob teto, com piso e espaco para ficar em pe
 		array<vector> valid = {};
 		foreach (vector p : snapped)
 		{
-			if (USE_INTERIOR_OBB_GATE && !IsInsideInteriorVolume(target, p))
+			if (settings.m_bUseInteriorOBBGate && !IsInsideInteriorVolume(target, p))
+			{
+				if (debugData)
+					debugData.m_aRejectedOBB.Insert(p);
 				continue;
+			}
 			if (!IsUnderRoof(world, target, p))
+			{
+				if (debugData)
+					debugData.m_aRejectedRoof.Insert(p);
 				continue;
-			if (IsUnderground(world, p))
+			}
+			SPT_EGarrisonFloorRejectReason floorReject = GetFloorRejectReason(world, p, settings);
+			if (floorReject != SPT_EGarrisonFloorRejectReason.NONE)
+			{
+				if (debugData)
+				{
+					if (floorReject == SPT_EGarrisonFloorRejectReason.UNDERGROUND)
+						debugData.m_aRejectedUnderground.Insert(p);
+					else if (floorReject == SPT_EGarrisonFloorRejectReason.NO_FLOOR)
+						debugData.m_aRejectedNoFloor.Insert(p);
+					else if (floorReject == SPT_EGarrisonFloorRejectReason.FLOOR_GAP)
+						debugData.m_aRejectedFloorGap.Insert(p);
+					else if (floorReject == SPT_EGarrisonFloorRejectReason.HEADROOM)
+						debugData.m_aRejectedHeadroom.Insert(p);
+				}
 				continue;
-			if (!HasClearStandingSpace(world, target, p))
+			}
+			if (!HasClearStandingSpace(world, target, p, settings))
+			{
+				if (debugData)
+					debugData.m_aRejectedSpace.Insert(p);
 				continue;
-			if (!HasWallsAround(world, target, p))
+			}
+			if (!HasWallsAround(world, target, p, settings))
+			{
+				if (debugData)
+					debugData.m_aRejectedWalls.Insert(p);
 				continue;
+			}
 			valid.Insert(p);
 		}
+		if (debugData)
+			debugData.m_aValid.Copy(valid);
 		if (valid.IsEmpty())
 			return SPT_EGarrisonDetectResult.NO_POSITIONS;
 
 		array<vector> doors = {};
 		CollectBuildingDoors(target, doors);
-		vector buildingCenter = (mins + maxs) * 0.5;
+		if (debugData)
+			debugData.m_aDoors.Copy(doors);
 
 		// descarta pontos em pisos sem porta proxima na mesma altura (provavelmente inalcancaveis)
 		array<vector> reachable = {};
-		FilterToDoorLevels(valid, doors, reachable);
+		FilterToDoorLevels(valid, doors, settings.m_fDoorFloorTolerance, reachable);
+		if (debugData)
+		{
+			debugData.m_aReachable.Copy(reachable);
+			CollectRemoved(valid, reachable, debugData.m_aRejectedDoorLevel);
+		}
 
 		// mantem apenas o cluster conectado ao clique, para nao guarnecer um galpao isolado no fundo
 		array<vector> contained = {};
-		KeepCenterComponent(world, target, reachable, center, contained);
+		KeepCenterComponent(world, target, reachable, center, settings, contained);
+		if (debugData)
+		{
+			debugData.m_aContained.Copy(contained);
+			CollectRemoved(reachable, contained, debugData.m_aRejectedCluster);
+		}
 
 		// evita posicionar soldados bem em frente a portas e nao reutiliza postos ja ocupados
 		array<vector> spaced = {};
-		FilterByClearance(contained, doors, DOOR_CLEARANCE_M, spaced);
+		FilterByClearance(contained, doors, settings.m_fDoorClearance, spaced);
+		if (debugData)
+			CollectRemoved(contained, spaced, debugData.m_aRejectedDoorClearance);
 
 		array<vector> available = {};
-		FilterByClearance(spaced, excluded, OCCUPIED_CLEARANCE_M, available);
+		FilterByClearance(spaced, excluded, settings.m_fOccupiedClearance, available);
+		if (debugData)
+		{
+			debugData.m_aAvailable.Copy(available);
+			CollectRemoved(spaced, available, debugData.m_aRejectedOccupied);
+		}
 		if (available.IsEmpty())
 			return SPT_EGarrisonDetectResult.NO_POSITIONS;
 
 		// espalha os postos o maximo possivel para cobrir o local, em vez de agrupar todos no mesmo canto
 		array<vector> positions = {};
-		FarthestPointSample(available, buildingCenter, desiredCount, positions);
+		FarthestPointSample(available, buildingCenter, desiredCount, settings, positions);
 		if (positions.IsEmpty())
 			return SPT_EGarrisonDetectResult.NO_POSITIONS;
 
@@ -572,12 +741,22 @@ class SPT_GarrisonDetector
 
 		s_DebugOpenings = openings;
 		s_DebugContained = contained;
+		if (debugData)
+		{
+			foreach (SPT_GarrisonOpening debugOpening : openings)
+				debugData.m_aOpenings.Insert(debugOpening);
+		}
 
 		array<vector> facings = {};
 		AssignFacings(world, positions, openings, buildingCenter, approach, facings);
 
 		for (int i = 0; i < positions.Count(); i++)
-			outPosts.Insert(new SPT_GarrisonPost(positions[i], facings[i]));
+		{
+			SPT_GarrisonPost post = new SPT_GarrisonPost(positions[i], facings[i]);
+			outPosts.Insert(post);
+			if (debugData)
+				debugData.m_aPosts.Insert(post);
+		}
 
 		return SPT_EGarrisonDetectResult.OK;
 	}
@@ -733,23 +912,32 @@ class SPT_GarrisonDetector
 
 	// Cria uma grade sobre a construcao em algumas alturas de piso e encaixa cada ponto no navmesh,
 	// resultando apenas em locais onde e possivel ficar em pe
-	protected static void SampleNavmesh(AIPathfindingComponent pathing, vector mins, vector maxs, out array<vector> snapped)
+	protected static void SampleNavmesh(
+		BaseWorld world,
+		AIPathfindingComponent pathing,
+		vector mins,
+		vector maxs,
+		notnull SPT_GarrisonDetectionSettings settings,
+		SPT_GarrisonDetectionDebug debugData,
+		out array<vector> snapped)
 	{
 		snapped = {};
 
 		float xSize = maxs[0] - mins[0];
 		float zSize = maxs[2] - mins[2];
 		float ySize = maxs[1] - mins[1];
-		int xSteps = Math.Floor(xSize / GRID_SPACING_M);
-		int zSteps = Math.Floor(zSize / GRID_SPACING_M);
+		float gridSpacing = Math.Max(settings.m_fGridSpacing, 0.1);
+		float sliceSpacing = Math.Max(settings.m_fYSliceSpacing, 0.1);
+		int xSteps = Math.Floor(xSize / gridSpacing);
+		int zSteps = Math.Floor(zSize / gridSpacing);
 
-		int floorCount = Math.Floor(ySize / Y_SLICE_SPACING_M);
+		int floorCount = Math.Floor(ySize / sliceSpacing);
 		if (floorCount < 1)
 			floorCount = 1;
 
 		for (int yi = 0; yi < floorCount; yi++)
 		{
-			float sliceY = mins[1] + yi * Y_SLICE_SPACING_M + FLOOR_OFFSET_M;
+			float sliceY = mins[1] + yi * sliceSpacing + settings.m_fFloorOffset;
 			if (sliceY >= maxs[1])
 				continue;
 
@@ -758,18 +946,33 @@ class SPT_GarrisonDetector
 				for (int zi = 0; zi <= zSteps; zi++)
 				{
 					vector gridPt = Vector(
-						mins[0] + xi * GRID_SPACING_M,
+						mins[0] + xi * gridSpacing,
 						sliceY,
-						mins[2] + zi * GRID_SPACING_M);
+						mins[2] + zi * gridSpacing);
+					if (debugData)
+						debugData.m_aGrid.Insert(gridPt);
 
 					vector snappedPt;
-					if (!pathing.GetClosestPositionOnNavmesh(gridPt, NAVMESH_SEARCH_HALF, snappedPt))
+					bool foundPosition;
+					if (pathing)
+						foundPosition = pathing.GetClosestPositionOnNavmesh(
+							gridPt,
+							settings.m_vNavmeshSearchHalf,
+							snappedPt);
+					else
+						foundPosition = SnapToEditorFloor(world, gridPt, sliceSpacing, settings.m_fFloorOffset, snappedPt);
+
+					if (!foundPosition)
+					{
+						if (debugData)
+							debugData.m_aNavmeshMiss.Insert(gridPt);
 						continue;
+					}
 
 					bool dup = false;
 					foreach (vector s : snapped)
 					{
-						if (vector.DistanceSq(s, snappedPt) < SNAP_DEDUP_SQ)
+						if (vector.DistanceSq(s, snappedPt) < settings.m_fSnapDedupSq)
 						{
 							dup = true;
 							break;
@@ -777,9 +980,42 @@ class SPT_GarrisonDetector
 					}
 					if (!dup)
 						snapped.Insert(snappedPt);
+					else if (debugData)
+						debugData.m_aSnapDuplicate.Insert(snappedPt);
 				}
 			}
 		}
+		if (debugData)
+			debugData.m_aSnapped.Copy(snapped);
+	}
+
+	//! Fallback exclusivo da ferramenta Workbench. O editor nao inicializa
+	//! AIAgent/AIPathfindingComponent, entao projetamos a mesma grade sobre
+	//! superficies fisicas e deixamos os filtros CQB validarem o resultado.
+	protected static bool SnapToEditorFloor(
+		BaseWorld world,
+		vector gridPoint,
+		float sliceSpacing,
+		float floorOffset,
+		out vector snappedPoint)
+	{
+		snappedPoint = vector.Zero;
+		if (!world)
+			return false;
+
+		float downDistance = Math.Max(sliceSpacing, floorOffset + 0.75);
+		TraceParam trace = new TraceParam();
+		trace.Start = gridPoint;
+		trace.End = gridPoint - Vector(0, downDistance, 0);
+		trace.Flags = TraceFlags.WORLD | TraceFlags.ENTS;
+		trace.LayerMask = EPhysicsLayerDefs.Projectile;
+		float fraction = world.TraceMove(trace, null);
+		if (fraction >= 1.0)
+			return false;
+
+		snappedPoint = vector.Lerp(trace.Start, trace.End, fraction);
+		snappedPoint[1] = snappedPoint[1] + 0.05;
+		return true;
 	}
 
 	// Dispara um raio diretamente para cima; se atingir algo, ha um teto sobre este ponto
@@ -796,32 +1032,39 @@ class SPT_GarrisonDetector
 	}
 
 	// Rejeita pontos sob o terreno, sem piso abaixo ou sem altura livre; mantem-nos fora de poroes
-	protected static bool IsUnderground(BaseWorld world, vector point)
+	protected static SPT_EGarrisonFloorRejectReason GetFloorRejectReason(
+		BaseWorld world,
+		vector point,
+		notnull SPT_GarrisonDetectionSettings settings)
 	{
 		float terrainY = world.GetSurfaceY(point[0], point[2]);
 		if (point[1] < terrainY - UNDERGROUND_SLOP_M)
-			return true;
+			return SPT_EGarrisonFloorRejectReason.UNDERGROUND;
 
 		vector floorHit;
 		vector downStart = point + Vector(0, 0.1, 0);
-		float fDown = TraceSeg(world, downStart, downStart - Vector(0, FLOOR_PROBE_M + 0.1, 0), floorHit);
+		float fDown = TraceSeg(world, downStart, downStart - Vector(0, settings.m_fFloorProbe + 0.1, 0), floorHit);
 		if (fDown >= 1.0)
-			return true;
-		if ((point[1] - floorHit[1]) > MAX_FLOOR_GAP_M)
-			return true;
+			return SPT_EGarrisonFloorRejectReason.NO_FLOOR;
+		if ((point[1] - floorHit[1]) > settings.m_fMaxFloorGap)
+			return SPT_EGarrisonFloorRejectReason.FLOOR_GAP;
 
 		vector ceilHit;
 		vector upStart = floorHit + Vector(0, 0.05, 0);
-		float fUp = TraceSeg(world, upStart, upStart + Vector(0, MIN_HEADROOM_M, 0), ceilHit);
+		float fUp = TraceSeg(world, upStart, upStart + Vector(0, settings.m_fMinHeadroom, 0), ceilHit);
 		if (fUp < 1.0)
-			return true;
+			return SPT_EGarrisonFloorRejectReason.HEADROOM;
 
-		return false;
+		return SPT_EGarrisonFloorRejectReason.NONE;
 	}
 
 	// Verifica espaco livre na altura do peito em 8 direcoes, garantindo que o soldado nao esta
 	// preso em um canto de parede
-	protected static bool HasClearStandingSpace(BaseWorld world, IEntity shell, vector point)
+	protected static bool HasClearStandingSpace(
+		BaseWorld world,
+		IEntity shell,
+		vector point,
+		notnull SPT_GarrisonDetectionSettings settings)
 	{
 		vector chest = point + Vector(0, CHEST_H_M, 0);
 		float step = Math.PI * 2.0 / 8.0;
@@ -832,7 +1075,7 @@ class SPT_GarrisonDetector
 
 			TraceParam p = new TraceParam();
 			p.Start = chest;
-			p.End = chest + dir * CLEAR_RADIUS_M;
+			p.End = chest + dir * settings.m_fClearRadius;
 			p.Flags = TraceFlags.ENTS;
 			p.LayerMask = EPhysicsLayerDefs.Projectile;
 			p.Exclude = shell;
@@ -845,7 +1088,11 @@ class SPT_GarrisonDetector
 
 	// Fechado por ESTA construcao? Somente as paredes desta construcao contam, nao as dos vizinhos
 	// (evita postos em paredes externas em vilarejos densos)
-	protected static bool HasWallsAround(BaseWorld world, IEntity building, vector point)
+	protected static bool HasWallsAround(
+		BaseWorld world,
+		IEntity building,
+		vector point,
+		notnull SPT_GarrisonDetectionSettings settings)
 	{
 		IEntity buildingRoot = building.GetRootParent();
 		if (!buildingRoot)
@@ -861,7 +1108,7 @@ class SPT_GarrisonDetector
 
 			TraceParam p = new TraceParam();
 			p.Start = eye;
-			p.End = eye + dir * ENCLOSE_RAY_M;
+			p.End = eye + dir * settings.m_fEncloseRay;
 			p.Flags = TraceFlags.WORLD | TraceFlags.ENTS;
 			p.LayerMask = EPhysicsLayerDefs.Projectile;
 			float frac = world.TraceMove(p, null);
@@ -872,7 +1119,7 @@ class SPT_GarrisonDetector
 			if (IsPartOfBuilding(p.TraceEnt, buildingRoot))
 				hits++;
 		}
-		return hits >= ENCLOSE_MIN_HITS;
+		return hits >= settings.m_iEncloseMinHits;
 	}
 
 	// True se a entidade atingida pertence a construcao alvo (compartilha a mesma raiz)
@@ -995,7 +1242,11 @@ class SPT_GarrisonDetector
 
 	// So confia em pisos que tenham uma porta proxima na mesma altura,
 	// evitando mezaninos inalcancaveis
-	protected static void FilterToDoorLevels(notnull array<vector> points, notnull array<vector> doors, out array<vector> outKept)
+	protected static void FilterToDoorLevels(
+		notnull array<vector> points,
+		notnull array<vector> doors,
+		float floorTolerance,
+		out array<vector> outKept)
 	{
 		outKept = {};
 		if (doors.IsEmpty())
@@ -1011,7 +1262,7 @@ class SPT_GarrisonDetector
 				float dy = p[1] - d[1];
 				if (dy < 0)
 					dy = -dy;
-				if (dy <= DOOR_FLOOR_TOL_M)
+				if (dy <= floorTolerance)
 				{
 					outKept.Insert(p);
 					break;
@@ -1025,7 +1276,13 @@ class SPT_GarrisonDetector
 
 	// Union-find: agrupa pontos proximos entre si e mantem apenas o grupo mais proximo do clique,
 	// para que a guarnicao nao transborde para o predio vizinho
-	protected static void KeepCenterComponent(BaseWorld world, IEntity target, notnull array<vector> points, vector center, out array<vector> outKept)
+	protected static void KeepCenterComponent(
+		BaseWorld world,
+		IEntity target,
+		notnull array<vector> points,
+		vector center,
+		notnull SPT_GarrisonDetectionSettings settings,
+		out array<vector> outKept)
 	{
 		outKept = {};
 		int n = points.Count();
@@ -1037,7 +1294,7 @@ class SPT_GarrisonDetector
 		for (int i = 0; i < n; i++)
 			parent[i] = i;
 
-		float link2 = CONNECT_DIST_M * CONNECT_DIST_M;
+		float link2 = settings.m_fConnectDistance * settings.m_fConnectDistance;
 		for (int i = 0; i < n; i++)
 		{
 			for (int j = i + 1; j < n; j++)
@@ -1045,7 +1302,7 @@ class SPT_GarrisonDetector
 				float dy = points[i][1] - points[j][1];
 				if (dy < 0)
 					dy = -dy;
-				if (dy > CONNECT_Y_M)
+				if (dy > settings.m_fConnectY)
 					continue;
 				if (HorizontalDistSq(points[i], points[j]) > link2)
 					continue;
@@ -1062,7 +1319,7 @@ class SPT_GarrisonDetector
 		float best = float.MAX;
 		for (int i = 0; i < n; i++)
 		{
-			float d = WeightedDistSq(points[i], center);
+			float d = WeightedDistSq(points[i], center, settings.m_fFloorWeight);
 			if (d < best)
 			{
 				best = d;
@@ -1083,20 +1340,25 @@ class SPT_GarrisonDetector
 
 	// Seleciona pontos o mais distantes possivel dos ja escolhidos, para que o esquadrao se espalhe
 	// em vez de se aglomerar. Usa algoritmo farthest-point sampling com fator de aleatoriedade.
-	protected static void FarthestPointSample(notnull array<vector> candidates, vector center, int want, out array<vector> outPicked)
+	protected static void FarthestPointSample(
+		notnull array<vector> candidates,
+		vector center,
+		int want,
+		notnull SPT_GarrisonDetectionSettings settings,
+		out array<vector> outPicked)
 	{
 		outPicked = {};
 		int c = candidates.Count();
 		if (c == 0)
 			return;
 
-		float minSpace2 = MIN_POST_SPACING_M * MIN_POST_SPACING_M;
+		float minSpace2 = settings.m_fMinPostSpacing * settings.m_fMinPostSpacing;
 
 		int seed = 0;
 		float far = -1.0;
 		for (int i = 0; i < c; i++)
 		{
-			float d = WeightedDistSq(candidates[i], center);
+			float d = WeightedDistSq(candidates[i], center, settings.m_fFloorWeight);
 			if (d > far)
 			{
 				far = d;
@@ -1111,14 +1373,14 @@ class SPT_GarrisonDetector
 		for (int i = 0; i < c; i++)
 		{
 			taken[i] = false;
-			minDist[i] = WeightedDistSq(candidates[i], candidates[seed]);
+			minDist[i] = WeightedDistSq(candidates[i], candidates[seed], settings.m_fFloorWeight);
 		}
 		outPicked.Insert(candidates[seed]);
 		taken[seed] = true;
 
 		while (outPicked.Count() < want)
 		{
-			int pick = TopKFarthest(minDist, taken, FPS_JITTER_K, minSpace2);
+			int pick = TopKFarthest(minDist, taken, settings.m_iFarthestJitter, minSpace2);
 			if (pick < 0)
 				break;
 			outPicked.Insert(candidates[pick]);
@@ -1127,7 +1389,7 @@ class SPT_GarrisonDetector
 			{
 				if (taken[i])
 					continue;
-				float d = WeightedDistSq(candidates[i], candidates[pick]);
+				float d = WeightedDistSq(candidates[i], candidates[pick], settings.m_fFloorWeight);
 				if (d < minDist[i])
 					minDist[i] = d;
 			}
@@ -1168,10 +1430,10 @@ class SPT_GarrisonDetector
 
 	// Distancia que pondera mais a separacao vertical, para que pisos diferentes sejam
 	// tratados como genuinamente distantes entre si
-	protected static float WeightedDistSq(vector a, vector b)
+	protected static float WeightedDistSq(vector a, vector b, float floorWeight)
 	{
 		float dx = a[0] - b[0];
-		float dy = (a[1] - b[1]) * FLOOR_WEIGHT;
+		float dy = (a[1] - b[1]) * floorWeight;
 		float dz = a[2] - b[2];
 		return dx * dx + dy * dy + dz * dz;
 	}
@@ -1553,6 +1815,28 @@ class SPT_GarrisonDetector
 		float dx = a[0] - b[0];
 		float dz = a[2] - b[2];
 		return dx * dx + dz * dz;
+	}
+
+	//! Coleta pontos presentes na entrada e ausentes na saida de um filtro.
+	protected static void CollectRemoved(
+		notnull array<vector> input,
+		notnull array<vector> kept,
+		notnull array<vector> removed)
+	{
+		foreach (vector candidate : input)
+		{
+			bool found = false;
+			foreach (vector accepted : kept)
+			{
+				if (vector.DistanceSq(candidate, accepted) < 0.0001)
+				{
+					found = true;
+					break;
+				}
+			}
+			if (!found)
+				removed.Insert(candidate);
+		}
 	}
 
 	// Retorna o intervalo de alturas [min..max] dos pontos, para depuracao
