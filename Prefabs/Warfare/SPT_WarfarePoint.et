@@ -21,6 +21,7 @@ GenericEntity {
     "{958039B857396B7B}Prefabs/Groups/BLUFOR/Group_US_MachineGunTeam.et"
    }
    m_sGarrisonPatrolWaypointPrefab "{FFF9518F73279473}PrefabsEditable/Auto/AI/Waypoints/E_AIWaypoint_Move.et"
+   m_sBattleWaypointPrefab "PrefabsEditable/Auto/AI/Waypoints/E_AIWaypoint_SearchAndDestroy.et"
    m_eGarrisonPatrolFormation Column
    m_eGarrisonPatrolMovementType WALK
    m_eBattleMovementType RUN

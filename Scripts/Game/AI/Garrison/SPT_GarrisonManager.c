@@ -176,6 +176,59 @@ class SPT_GarrisonManager
 			PATROL_NAV_MAX_POLLS);
 	}
 
+	//! Envia um grupo terrestre ao objetivo de batalha usando um unico
+	//! SearchAndDestroy cobrindo toda a area. O grupo preserva o ponto de spawn.
+	void Reinforce(
+		SCR_AIGroup group,
+		vector areaCenter,
+		float areaRadius,
+		ResourceName battleWaypointPrefab,
+		SCR_EAIGroupFormation formation,
+		EMovementType movementType)
+	{
+		if (!group)
+			return;
+
+		Resource waypointResource = Resource.Load(battleWaypointPrefab);
+		if (!waypointResource)
+		{
+			Print(string.Format("[SPT_Garrison] SearchAndDestroy indisponivel; reforco usara patrulha Move | grupo=%1 | recurso=%2",
+				group, battleWaypointPrefab), LogLevel.ERROR);
+			Patrol(
+				group,
+				areaCenter,
+				areaRadius,
+				DEFAULT_PATROL_WAYPOINT_PREFAB,
+				formation,
+				movementType,
+				false);
+			return;
+		}
+
+		EntitySpawnParams params = new EntitySpawnParams();
+		params.TransformMode = ETransformMode.WORLD;
+		params.Transform[3] = areaCenter;
+		IEntity waypointEntity = GetGame().SpawnEntityPrefab(
+			waypointResource,
+			group.GetWorld(),
+			params);
+		AIWaypoint waypoint = AIWaypoint.Cast(waypointEntity);
+		if (!waypoint)
+		{
+			if (waypointEntity)
+				SCR_EntityHelper.DeleteEntityAndChildren(waypointEntity);
+			Print(string.Format("[SPT_Garrison] Entidade SearchAndDestroy invalida | grupo=%1 | recurso=%2",
+				group, battleWaypointPrefab), LogLevel.ERROR);
+			return;
+		}
+
+		waypoint.SetCompletionRadius(Math.Max(areaRadius, 20.0));
+		ApplyPatrolMovementSettings(group, formation, movementType);
+		group.AddWaypoint(waypoint);
+		Print(string.Format("[SPT_Garrison] Reforco terrestre recebeu SearchAndDestroy | grupo=%1 | centro=%2 | raio=%3",
+			group, areaCenter, areaRadius));
+	}
+
 	protected void ApplyPatrolMovementSettings(
 		notnull SCR_AIGroup group,
 		SCR_EAIGroupFormation formation,

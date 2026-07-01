@@ -726,6 +726,11 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 		return location.m_Config.m_sPatrolWaypointPrefab;
 	}
 
+	protected ResourceName GetLocationBattleWaypointPrefab(notnull SPT_GarrisonLocation location)
+	{
+		return location.m_Config.m_sBattleWaypointPrefab;
+	}
+
 	protected SCR_EAIGroupFormation GetLocationPatrolFormation(notnull SPT_GarrisonLocation location)
 	{
 		return location.m_Config.m_ePatrolFormation;
@@ -3251,7 +3256,7 @@ class SPT_WorldGarrisonManagerComponent : ScriptComponent
 					group,
 					patrolCenter,
 					GetLocationPatrolRadius(location),
-					GetLocationPatrolWaypointPrefab(location),
+					GetLocationBattleWaypointPrefab(location),
 					GetLocationPatrolFormation(location),
 					movementType);
 			}

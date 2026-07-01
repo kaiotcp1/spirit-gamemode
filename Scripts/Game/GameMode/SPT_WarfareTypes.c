@@ -107,6 +107,7 @@ class SPT_GarrisonLocationConfig : Managed
 	ref array<ResourceName> m_aCQBGroupPrefabs = new array<ResourceName>();
 	ref array<ResourceName> m_aPatrolGroupPrefabs = new array<ResourceName>();
 	ResourceName m_sPatrolWaypointPrefab;
+	ResourceName m_sBattleWaypointPrefab;
 	SCR_EAIGroupFormation m_ePatrolFormation;
 	EMovementType m_ePatrolMovementType;
 	EMovementType m_eBattleMovementType = EMovementType.RUN;

@@ -41,21 +41,20 @@ class SPT_AIGarrisonHelper
 		SCR_AIGroup group,
 		vector areaCenter,
 		float areaRadius,
-		ResourceName patrolWaypointPrefab,
+		ResourceName battleWaypointPrefab,
 		SCR_EAIGroupFormation patrolFormation,
 		EMovementType patrolMovementType)
 	{
 		if (!group)
 			return;
 
-		SPT_GarrisonManager.Get().Patrol(
+		SPT_GarrisonManager.Get().Reinforce(
 			group,
 			areaCenter,
 			areaRadius,
-			patrolWaypointPrefab,
+			battleWaypointPrefab,
 			patrolFormation,
-			patrolMovementType,
-			false);
+			patrolMovementType);
 	}
 
 	// Encaminha um pedido de liberacao de grupo (desguarnecer) para o gerenciador central

@@ -56,6 +56,9 @@ class SPT_WarfarePointComponent : SPT_WarfareNodeComponent
 	[Attribute(EMovementType.RUN.ToString(), UIWidgets.ComboBox, "Movimento dos reforcos desta area ate o objetivo.", "", ParamEnumArray.FromEnum(EMovementType), category: "Garrison Battle")]
 	protected EMovementType m_eBattleMovementType;
 
+	[Attribute("PrefabsEditable/Auto/AI/Waypoints/E_AIWaypoint_SearchAndDestroy.et", UIWidgets.ResourceNamePicker, desc: "Waypoint usado pelos reforcos terrestres para procurar e destruir inimigos na area.", params: "et", category: "Garrison Battle")]
+	protected ResourceName m_sBattleWaypointPrefab;
+
 	[Attribute("1", desc: "Ativa batalha e reforcos nesta area.", category: "Garrison Battle")]
 	protected bool m_bBattleEnabled;
 
@@ -159,6 +162,7 @@ class SPT_WarfarePointComponent : SPT_WarfareNodeComponent
 		config.m_bEnableCaching = m_bGarrisonEnableCaching;
 		config.m_iSpawnIntervalMs = m_iGarrisonSpawnIntervalMs;
 		config.m_sPatrolWaypointPrefab = m_sGarrisonPatrolWaypointPrefab;
+		config.m_sBattleWaypointPrefab = m_sBattleWaypointPrefab;
 		config.m_ePatrolFormation = m_eGarrisonPatrolFormation;
 		config.m_ePatrolMovementType = m_eGarrisonPatrolMovementType;
 		config.m_eBattleMovementType = m_eBattleMovementType;
